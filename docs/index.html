@@ -3,38 +3,32 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ArknightsPatcher · 方舟补丁工具｜明日方舟 B 服（哔哩哔哩）iOS 离线补丁</title>
-  <meta name="description" content="ArknightsPatcher（方舟补丁工具）是一款运行在 iOS 设备上的开源离线补丁工具，支持为已解密的《明日方舟》（Arknights）IPA 本地注入 B 服（哔哩哔哩 / Bilibili）登录桥接组件。" />
-  <meta name="keywords" content="Arknights, Bilibili, iOS, IPA, IL2CPP, ArknightsPatcher, 明日方舟, B服, 哔哩哔哩, 方舟补丁工具, 明日方舟B服iOS" />
-  <meta property="og:title" content="ArknightsPatcher · 明日方舟 B 服 iOS 离线补丁工具" />
-  <meta property="og:description" content="本地离线修补、极速 ZIP64 流式直通、支持内置 2.7.91 / 手工 JSON / IL2CPP 自动适配。" />
+  <title>明日方舟 B 服 iOS 补丁工具 · Arknights Bilibili iOS Patcher</title>
+  <meta name="description" content="在 iPhone / iPad 上直接给已解密的《明日方舟》官服 IPA 打上 B 服（哔哩哔哩）登录补丁，生成待签名 IPA。" />
+  <meta name="keywords" content="明日方舟, B服, 哔哩哔哩, iOS, Arknights, Bilibili, IPA, IL2CPP" />
+  <meta property="og:title" content="明日方舟 B 服 iOS 补丁工具" />
+  <meta property="og:description" content="在 iOS 设备上本地给已解密的《明日方舟》IPA 打上 B 服（哔哩哔哩）登录补丁。" />
   <meta property="og:image" content="assets/app-icon.png" />
   <link rel="icon" type="image/png" href="assets/app-icon.png" />
   <link rel="apple-touch-icon" href="assets/app-icon.png" />
   <style>
     :root {
-      --bg: #0b1020;
-      --surface: rgba(255, 255, 255, 0.05);
-      --surface-strong: rgba(255, 255, 255, 0.08);
-      --border: rgba(255, 255, 255, 0.12);
-      --text: #eef2ff;
-      --muted: #a5b4fc;
-      --sub: #94a3b8;
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --sub: #8b949e;
       --accent: #38bdf8;
-      --accent-2: #6366f1;
-      --warn-bg: rgba(245, 158, 11, 0.12);
-      --warn-border: rgba(245, 158, 11, 0.35);
-      --warn-text: #fde68a;
+      --warn-bg: rgba(210, 153, 34, 0.1);
+      --warn-border: rgba(210, 153, 34, 0.4);
+      --warn-text: #e3b341;
     }
 
     * { box-sizing: border-box; }
     body {
       margin: 0;
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-      background:
-        radial-gradient(900px 500px at 15% -10%, rgba(56, 189, 248, 0.18), transparent 60%),
-        radial-gradient(800px 500px at 85% 0%, rgba(99, 102, 241, 0.18), transparent 60%),
-        var(--bg);
+      background: var(--bg);
       color: var(--text);
       line-height: 1.65;
     }
@@ -43,57 +37,43 @@
     a:hover { text-decoration: underline; }
 
     .container {
-      max-width: 1080px;
+      max-width: 920px;
       margin: 0 auto;
       padding: 40px 20px 64px;
     }
 
     .hero {
       text-align: center;
-      padding: 36px 24px 44px;
+      padding: 36px 24px;
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 28px;
-      backdrop-filter: blur(16px);
+      border-radius: 20px;
     }
 
     .app-icon {
-      width: 104px;
-      height: 104px;
-      border-radius: 24px;
-      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
-      border: 1px solid rgba(255, 255, 255, 0.18);
-      margin-bottom: 18px;
-    }
-
-    .badge-row {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: center;
-      gap: 8px;
+      width: 96px;
+      height: 96px;
+      border-radius: 22px;
       margin-bottom: 16px;
-    }
-
-    .badge {
-      font-size: 12px;
-      padding: 4px 12px;
-      border-radius: 999px;
-      background: rgba(56, 189, 248, 0.12);
-      border: 1px solid rgba(56, 189, 248, 0.3);
-      color: #bae6fd;
+      border: 1px solid var(--border);
     }
 
     h1 {
-      margin: 0 0 10px;
-      font-size: clamp(28px, 4vw, 42px);
-      letter-spacing: -0.02em;
+      margin: 0 0 8px;
+      font-size: clamp(26px, 4vw, 36px);
+    }
+
+    .en-name {
+      margin: 0 0 14px;
+      color: var(--sub);
+      font-size: 15px;
     }
 
     .subtitle {
-      max-width: 720px;
+      max-width: 640px;
       margin: 0 auto 24px;
       color: var(--sub);
-      font-size: 16px;
+      font-size: 15px;
     }
 
     .cta-row {
@@ -104,98 +84,87 @@
     }
 
     .btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 12px 22px;
-      border-radius: 14px;
+      display: inline-block;
+      padding: 10px 20px;
+      border-radius: 10px;
       font-weight: 600;
-      font-size: 15px;
+      font-size: 14px;
       border: 1px solid var(--border);
-      transition: transform 0.15s ease, background 0.15s ease;
     }
 
-    .btn:hover { transform: translateY(-1px); text-decoration: none; }
     .btn-primary {
-      background: linear-gradient(135deg, #0ea5e9, #6366f1);
+      background: #1f6feb;
       color: #fff;
       border-color: transparent;
     }
+
     .btn-secondary {
-      background: var(--surface-strong);
+      background: #21262d;
       color: var(--text);
     }
 
-    section { margin-top: 40px; }
-    .section-title {
-      font-size: 22px;
-      margin: 0 0 18px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .grid-3 {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 16px;
-    }
+    section { margin-top: 36px; }
+    h2 { font-size: 20px; margin: 0 0 14px; }
 
     .card {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 22px;
+      border-radius: 16px;
+      padding: 20px 24px;
     }
 
-    .card h3 { margin: 0 0 8px; font-size: 17px; }
-    .card p { margin: 0; color: var(--sub); font-size: 14px; }
+    ul.features {
+      margin: 0;
+      padding-left: 20px;
+      color: var(--sub);
+    }
+
+    ul.features li { margin-bottom: 8px; }
+    ul.features strong { color: var(--text); }
 
     .screenshots {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 24px;
-      align-items: start;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 20px;
     }
 
     .shot-card {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 24px;
-      padding: 18px;
+      border-radius: 16px;
+      padding: 16px;
       text-align: center;
     }
 
     .shot-card img {
       width: 100%;
-      max-width: 320px;
-      border-radius: 20px;
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.4);
+      max-width: 300px;
+      border-radius: 16px;
+      border: 1px solid var(--border);
     }
 
     .shot-caption {
-      margin-top: 12px;
-      font-size: 14px;
+      margin-top: 10px;
+      font-size: 13px;
       color: var(--sub);
     }
 
     .disclaimer {
       background: var(--warn-bg);
       border: 1px solid var(--warn-border);
-      border-radius: 20px;
-      padding: 22px 24px;
+      border-radius: 16px;
+      padding: 18px 22px;
       color: var(--warn-text);
       font-size: 14px;
     }
 
-    .disclaimer h3 { margin: 0 0 10px; color: #fef3c7; }
-    .disclaimer ul { margin: 8px 0 0; padding-left: 20px; }
+    .disclaimer h2 { margin: 0 0 10px; font-size: 17px; }
+    .disclaimer ul { margin: 0; padding-left: 20px; }
     .disclaimer li { margin-bottom: 6px; }
 
     footer {
-      margin-top: 48px;
-      padding-top: 24px;
+      margin-top: 40px;
+      padding-top: 20px;
       border-top: 1px solid var(--border);
       display: flex;
       flex-wrap: wrap;
@@ -209,82 +178,59 @@
 <body>
   <main class="container">
     <section class="hero">
-      <img class="app-icon" src="assets/app-icon.png" alt="ArknightsPatcher 图标" />
-      <div class="badge-row">
-        <span class="badge">Arknights · 明日方舟</span>
-        <span class="badge">Bilibili · B服 · 哔哩哔哩</span>
-        <span class="badge">iOS · SwiftUI · 离线修补</span>
-      </div>
-      <h1>ArknightsPatcher · 方舟补丁工具</h1>
+      <img class="app-icon" src="assets/app-icon.png" alt="明日方舟 B 服 iOS 补丁工具图标" />
+      <h1>明日方舟 B 服 iOS 补丁工具</h1>
+      <p class="en-name">Arknights Bilibili iOS Patcher</p>
       <p class="subtitle">
-        运行在 iPhone / iPad 上的开源离线 IPA 修补工具，为已解密的《明日方舟》iOS 客户端本地注入 B 服（哔哩哔哩）登录桥接组件，支持内置 2.7.91 基准、导入手工 JSON 配置与 IL2CPP 自动适配。
+        在 iPhone / iPad 上本地给已解密的《明日方舟》官服 IPA 打上 B 服（哔哩哔哩）登录补丁，生成待签名 IPA。
       </p>
       <div class="cta-row">
-        <a class="btn btn-primary" href="https://github.com/MiohalationM/ArknightsPatcher/releases">下载最新 IPA (Releases)</a>
-        <a class="btn btn-secondary" href="https://github.com/MiohalationM/ArknightsPatcher">查看 GitHub 源码</a>
-        <a class="btn btn-secondary" href="https://github.com/lazhire/Arknights-Bilibili-for-IOS">参考项目：Arknights-Bilibili-for-IOS</a>
+        <a class="btn btn-primary" href="https://github.com/MiohalationM/Arknights-Bilibili-iOS-Patcher/releases">下载 IPA (Releases)</a>
+        <a class="btn btn-secondary" href="https://github.com/MiohalationM/Arknights-Bilibili-iOS-Patcher">GitHub 源码</a>
+        <a class="btn btn-secondary" href="https://github.com/lazhire/Arknights-Bilibili-for-IOS">参考项目</a>
       </div>
     </section>
 
     <section>
-      <h2 class="section-title">核心特性与性能</h2>
-      <div class="grid-3">
-        <article class="card">
-          <h3>极速流式直通 · 15.8 秒完成</h3>
-          <p>采用 ZIP64 流式增量打包，未改动条目直接直通复制；2.79 GB 大体积 IPA 在 iPhone 真机实测约 15.8 秒完成修补与复核。</p>
-        </article>
-        <article class="card">
-          <h3>精准校验（Build 13 优化）</h3>
-          <p>复核全量条目清单与 CRC32，并对所有替换/新增补丁条目执行 SHA-256 校验；跳过冗余的整包 2.8 GB 二次通读哈希，兼顾速度与可靠性。</p>
-        </article>
-        <article class="card">
-          <h3>三层版本适配体系</h3>
-          <p>支持内置已验证 2.7.91 基准、App 内导入新版本手工 JSON 配置（免更新 App），以及未知新版本 IL2CPP 元数据自动定位与布局校验。</p>
-        </article>
-        <article class="card">
-          <h3>原包只读 · 原子暂存</h3>
-          <p>全程不联网、不修改原始 IPA；输出文件先写入临时文件并完成复核后再原子替换，切后台或重启也不易丢失。</p>
-        </article>
-        <article class="card">
-          <h3>B 服桌面图标可选</h3>
-          <p>可自由选择替换为带「B」角标的 B 服专属桌面图标，或保留官服原版图标，方便同机区分多开。</p>
-        </article>
-        <article class="card">
-          <h3>公开参考与开源透明</h3>
-          <p>参考开源项目 <a href="https://github.com/lazhire/Arknights-Bilibili-for-IOS">lazhire/Arknights-Bilibili-for-IOS</a> 的桥接思路，核心与界面代码完整开源。</p>
-        </article>
+      <h2>功能说明</h2>
+      <div class="card">
+        <ul class="features">
+          <li><strong>本地离线处理</strong>：全程不联网，也不会改动原始 IPA 文件。</li>
+          <li><strong>速度较快</strong>：只重打包改动过的文件，2.8 GB 左右的 IPA 在 iPhone 上大概十几秒完成。</li>
+          <li><strong>版本适配</strong>：内置 2.7.91 已验证配置；后续游戏更新可在 App 内导入手工 JSON 配置，也支持自动解析新版本 IL2CPP 偏移。</li>
+          <li><strong>可选 B 服图标</strong>：支持换成带「B」角标的桌面图标，方便和官服区分，也可以保留原版图标。</li>
+        </ul>
       </div>
     </section>
 
     <section>
-      <h2 class="section-title">应用界面预览（iPhone 真机截图）</h2>
+      <h2>界面截图</h2>
       <div class="screenshots">
         <div class="shot-card">
-          <img src="assets/screenshot-home.png" alt="方舟补丁工具首页与修补选项" />
-          <div class="shot-caption">首页：底座状态核验、选择已解密 IPA、图标选项、自动适配开关与配置管理</div>
+          <img src="assets/screenshot-home.png" alt="首页与选项" />
+          <div class="shot-caption">首页：选择已解密 IPA、图标选项与自动适配开关</div>
         </div>
         <div class="shot-card">
-          <img src="assets/screenshot-export.jpg" alt="复核通过与导出界面" />
-          <div class="shot-caption">导出页：2.79 GB IPA 真机实测耗时 15.8 秒，复核通过后一键导出或清理缓存</div>
+          <img src="assets/screenshot-export.jpg" alt="打包完成与导出" />
+          <div class="shot-caption">导出页：2.79 GB IPA 真机实测耗时 15.8 秒</div>
         </div>
       </div>
     </section>
 
     <section>
       <div class="disclaimer">
-        <h3>免责声明（Disclaimer）</h3>
-        <p>使用或分发本项目的任何源码及构建产物前，请确认您已充分理解并同意以下条款：</p>
+        <h2>免责声明</h2>
         <ul>
-          <li><strong>仅限技术研究</strong>：本项目仅用于 iOS ZIP64 封装格式、Mach-O 动态库加载与 IL2CPP 结构分析等技术学习，不提供、不分发任何游戏本体或已解密 IPA。</li>
-          <li><strong>合规与账号风险自负</strong>：使用第三方修改或重签名客户端可能违反游戏服务条款，由此引发的账号封禁、数据损失或其它后果均由使用者自行承担。</li>
-          <li><strong>禁止商业用途</strong>：严禁将本项目或生成产物用于任何商业售卖、付费代打包或非法用途。</li>
-          <li><strong>版权声明</strong>：本项目代码基于 MIT 协议开源；游戏名称、图标及第三方资源的版权归其各自权利人所有。</li>
+          <li>本项目仅用于技术学习与研究，不提供任何游戏本体或已解密 IPA 文件。</li>
+          <li>使用修改或重签名客户端可能违反游戏服务条款，相关账号风险与后果请自行承担。</li>
+          <li>严禁将本项目或生成产物用于任何商业售卖、付费代打包或违法用途。</li>
+          <li>本项目源码基于 MIT 协议开源；涉及的第三方游戏名称、图标等权利归各自权利人所有。</li>
         </ul>
       </div>
     </section>
 
     <footer>
-      <span>ArknightsPatcher · MIT License · 关键词：Arknights / Bilibili / iOS / 明日方舟 / B服 / 哔哩哔哩</span>
+      <span>Arknights Bilibili iOS Patcher · MIT License</span>
       <span>参考项目：<a href="https://github.com/lazhire/Arknights-Bilibili-for-IOS">lazhire/Arknights-Bilibili-for-IOS</a></span>
     </footer>
   </main>
