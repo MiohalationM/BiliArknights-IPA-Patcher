@@ -1,11 +1,11 @@
 <div align="center">
   <img src="docs/assets/app-icon.png" alt="明日方舟 B 服 iOS 补丁工具图标" width="110" height="110" />
   <h1>明日方舟 B 服 iOS 补丁工具</h1>
-  <p><strong>Arknights Bilibili iOS Patcher</strong></p>
+  <p><strong>BiliArknights IPA Patcher</strong></p>
   <p>在 iPhone / iPad 上直接给已解密的《明日方舟》官服 IPA 打上 B 服（哔哩哔哩）登录补丁，生成待签名 IPA。</p>
   <p>
-    <a href="https://miohalationm.github.io/Arknights-Bilibili-iOS-Patcher/">项目主页</a> ·
-    <a href="https://github.com/MiohalationM/Arknights-Bilibili-iOS-Patcher/releases">下载 IPA (Releases)</a> ·
+    <a href="https://miohalationm.github.io/BiliArknights-IPA-Patcher/">项目主页</a> ·
+    <a href="https://github.com/MiohalationM/BiliArknights-IPA-Patcher/releases">下载 IPA (Releases)</a> ·
     <a href="https://github.com/lazhire/Arknights-Bilibili-for-IOS">参考项目</a>
   </p>
 </div>
@@ -30,7 +30,7 @@
 
 ## 使用方法
 
-1. 去 [Releases](https://github.com/MiohalationM/Arknights-Bilibili-iOS-Patcher/releases) 下载最新的 `*-unsigned.ipa`。
+1. 去 [Releases](https://github.com/MiohalationM/BiliArknights-IPA-Patcher/releases) 下载最新的 `*-unsigned.ipa`。
 2. 用 TrollStore（巨魔商店）、AltStore、SideStore 或 Sideloadly 等工具签名安装到设备。
 3. 准备好已解密的《明日方舟》官服 IPA，在 App 里选择它，完成后导出生成的待签名 IPA 并安装。
 
