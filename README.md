@@ -1,131 +1,101 @@
 <div align="center">
-
-# 方舟补丁工具 · ArknightsPatcher
-
-**纯手机端离线修补 · 数据驱动源码桥接 · 单 IPA IL2CPP 自动定位**
-
-[![Platform](https://img.shields.io/badge/Platform-iOS%2027.0%2B%20%7C%20macOS%2015%2B-0A84FF?style=flat-square)](https://github.com/MiohalationM/ArknightsPatcher)
-[![Swift](https://img.shields.io/badge/Swift-6.0-F05138?style=flat-square)](https://swift.org)
-[![Release](https://img.shields.io/github/v/release/MiohalationM/ArknightsPatcher?style=flat-square&label=Release&color=34C759)](https://github.com/MiohalationM/ArknightsPatcher/releases/latest)
-[![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
-
-[项目主页 (GitHub Pages)](https://miohalationm.github.io/ArknightsPatcher/) · [下载最新工具 IPA](https://github.com/MiohalationM/ArknightsPatcher/releases/latest) · [手工配置规范](docs/PROFILE_FORMAT.md) · [桥接源码说明](Bridge/README.md)
-
+  <img src="docs/assets/app-icon.png" alt="ArknightsPatcher App Icon" width="120" height="120" />
+  <h1>ArknightsPatcher（方舟补丁工具）</h1>
+  <p><strong>明日方舟 B 服（哔哩哔哩）iOS 客户端离线补丁工具 · Arknights Bilibili iOS Offline IPA Patcher</strong></p>
+  <p>
+    关键词：<code>Arknights</code> · <code>Bilibili</code> · <code>iOS</code> · <code>明日方舟</code> · <code>B服</code> · <code>哔哩哔哩</code> · <code>IPA</code> · <code>IL2CPP</code>
+  </p>
+  <p>
+    <a href="https://miohalationm.github.io/ArknightsPatcher/">项目主页 (GitHub Pages)</a> ·
+    <a href="https://github.com/MiohalationM/ArknightsPatcher/releases">下载最新 IPA (Releases)</a> ·
+    <a href="https://github.com/lazhire/Arknights-Bilibili-for-IOS">参考项目 (Arknights-Bilibili-for-IOS)</a>
+  </p>
 </div>
 
 ---
 
 ## 项目简介
 
-**ArknightsPatcher（方舟补丁工具）** 是一款原生 iPhone 应用（Swift 6 / SwiftUI）与跨平台核心库（`IPAPatcherCore` + `Zip64Kit`），用于在 **iPhone 本机完全离线** 将已解密的官服 iOS《明日方舟》IPA 修补为可切换 Bilibili 服登录的待签名 IPA：
+**ArknightsPatcher（方舟补丁工具）** 是一款运行在 iPhone / iPad 上的原生 SwiftUI 离线工具，用于在本地为已解密的《明日方舟》（Arknights）iOS 客户端 IPA 包注入 B 服（哔哩哔哩 / Bilibili）登录桥接组件，生成可自签名安装的待签名 IPA。
 
-- **不解密、不签名、不联网、不修改原始 IPA**。
-- 面向大体积游戏包（约 2.8 GB）设计，采用单遍流式 ZIP64（未改条目 2 MB 分块零重压直通），处理后强制 100% 校验 ZIP CRC32 与补丁条目 SHA-256。
-
-> **致谢与参考项目**  
-> 本项目的 B 服渠道路由、SDK 桥接协议与早期基线分析深度参考了开源项目：[lazhire/Arknights-Bilibili-for-IOS](https://github.com/lazhire/Arknights-Bilibili-for-IOS)，在此致以诚挚感谢。
-
----
-
-## 核心特性
-
-### 1. 三层适配机制（游戏更新无需重装 App）
-1. **手工导入配置（最高优先级）**：支持在 App 内「适配配置管理」或从「文件」直接打开 `.json` / `ABRuntimeProfile.plist` 导入，按 `bundleID + version + build + UnityFramework UUID` 精确匹配。格式规范见 [docs/PROFILE_FORMAT.md](docs/PROFILE_FORMAT.md)。
-2. **内置已验证基准**：内置明日方舟 `2.7.91`（build `76`）全量 6 个宿主二进制 UUID 严格校验，与源码桥接 `ABLoginBridge.dylib` 配合完成真机 B 服切换与登录验证。
-3. **本机单 IPA 自动定位（IL2CPP）**：首页一键开关「自动适配未知新版本」。直接解析单份 IPA 内的明文 `global-metadata.dat`（支持 IL2CPP `v27` / `v29` / `v31`）与 `UnityFramework` Mach-O（支持 `LC_DYLD_CHAINED_FIXUPS` 与 ARM64 `ADRP + LDR/ADD` 双重印证），自动定位 14 项运行时偏移并执行字节级结构体 ABI 校验（`SDKMeta`、`NetworkConfig`、`NetworkOverride`）；证据不足或结构体布局变化时安全中止，禁止盲目导出。
-
-### 2. 自定义选项与安全存储
-- **应用图标选项**：支持在「B 服图标」与「保留原版」间自由切换（选择保留原版时跳过 `CFBundleIcons` 改写及 `ABAppIcon*.png` 写入）。
-- **动态 Mach-O 注入**：自动解析 `UnityFramework` Load Commands 并在零字节空隙写入 `LC_LOAD_DYLIB`，拦截重复注入。
-- **动态 `Info.plist` 合并**：仅增量合并 B 服渠道与 B 站 SDK 所需键，完整保留宿主版本号、构建号与插件表。
-- **防误删与原子暂存**：先写 `.partial` 并全量复核后再移入 `Application Support/PendingExports/`（已排除 iCloud 备份，切出去清空间或强杀均不丢件），支持随时手动删除释放空间。
+- **全程离线、原包只读**：所有解析、修补与复核均在设备本地完成，不连接任何第三方服务器，绝不修改用户原始 IPA 文件。
+- **极速流式 ZIP64 引擎**：针对 2.8 GB+ 大体积 IPA 优化，仅对修改/新增条目重新打包，未改动条目直接流式直通；iPhone 真机实测处理 2.79 GB IPA 仅需约 **15.8 秒**。
+- **三层版本适配体系**：
+  1. **内置已验证基准**：内置 `2.7.91 (build 76)` 完整偏移与补丁底座（206 项清单与 SHA-256 校验）。
+  2. **外部手工适配配置**：支持从 App 内导入更新版本的 JSON 手工配置文件，游戏更新时无需重新编译安装 App。
+  3. **IL2CPP 自动适配**：遇到未知新版本时，可自动解析单份 IPA 内的 `UnityFramework` 与 `global-metadata.dat`，结合结构体布局与特征校验定位偏移。
+- **B 服桌面图标可选**：支持一键切换为带「B」角标的 B 服专属桌面图标，或保留官服原版图标，方便多开区分。
+- **安全暂存与恢复**：采用原子写入与先落盘后清理策略，生成后的待签名 IPA 安全暂存本地，防止切后台或重启误丢。
 
 ---
 
-## 最新 Release 下载
+## 应用界面截图
 
-> **关于源码仓库不含 `payload.zip` 的说明**  
-> 为避免在 Git 源码历史中托管闭源第三方商业 SDK 二进制，本仓库 **仅包含纯开源代码、工程配置与文档**（`payload.zip` 与构建成品 `.ipa` 均已通过 `.gitignore` 排除）。  
-> 普通用户请直接前往 [Releases](https://github.com/MiohalationM/ArknightsPatcher/releases/latest) 下载打包好的未签名工具 IPA，签名安装即可使用。
-
-| 版本 | 产物文件名 | 大小 | SHA-256 |
-| --- | --- | --- | --- |
-| `v1.0.0-build13` | `ArknightsPatcher-1.0.0-build13-unsigned.ipa` | 5.5 MB | `6abb76e8901df68951ddaf4faddff999a115b736488d5b299c1f9517e899d0da` |
+| 首页与修补选项 | 复核通过与导出（2.79 GB · 15.8 秒） |
+| :---: | :---: |
+| <img src="docs/assets/screenshot-home.png" alt="方舟补丁工具首页" width="320" /> | <img src="docs/assets/screenshot-export.jpg" alt="复核通过与导出界面" width="320" /> |
 
 ---
 
-## 仓库结构
+## 完整性校验说明（Build 13 导出性能优化）
+
+为了兼顾大体积 IPA 的导出速度与产物可靠性，当前版本在导出复核阶段采用以下校验策略：
+
+1. **输入底座核验**：修补前核验内置 `manifest.json`、`payload.zip` 及全部 206 项补丁资源的 SHA-256。
+2. **全量 ZIP 目录与 CRC32 校验**：产物写入 `.partial` 临时文件后，逐一核对全部条目的清单一致性，并流式解压校验全量条目的 **CRC32 与解压后字节长度**（实测 3566 项）。
+3. **修改/新增条目 SHA-256 校验**：对所有被替换或新增的补丁条目逐项计算并比对 **SHA-256**，确保注入二进制与配置零损坏。
+4. **跳过整包全量 SHA-256 二次通读**：不再于每次导出末尾重复通读整个 ~2.8 GB 输出 IPA 计算整包 `outputSHA256`，大幅缩短等待时间（真机实测耗时降至 **15.8 秒**）。
+
+---
+
+## 参考与致谢
+
+- 核心 B 服桥接思路与早期适配方案参考自开源项目：[lazhire/Arknights-Bilibili-for-IOS](https://github.com/lazhire/Arknights-Bilibili-for-IOS)
+
+---
+
+## 目录结构
 
 ```text
-ArknightsPatcher/
-├── project.yml                         # XcodeGen 工程配置（Info.plist 键统一在此维护）
-├── ArknightsPatcher.xcodeproj/         # Xcode 工程
-├── App/                                # iOS 27.0 SwiftUI 应用源码
-│   ├── Models/PatchSessionState.swift
-│   ├── Services/
-│   │   ├── PatchPipelineViewModel.swift
-│   │   ├── CustomProfileStore.swift
-│   │   └── TempWorkspaceManager.swift
-│   └── Views/
-├── Packages/IPAPatcherCore/            # 独立跨平台 Swift Package（macOS 15+ / iOS 27.0+，零外部依赖）
-│   ├── Sources/Zip64Kit/               # 单遍流式 ZIP64 读写与 CRC32 校验
-│   ├── Sources/IPAPatcherCore/         # 宿主识别、IL2CPP 解析、三层匹配、动态注入与重打包
-│   ├── Sources/IPAPatcherCLI/          # macOS 命令行工具（verify-kit / inspect / self-check / match / patch）
-│   └── Tests/                          # 单元测试套件（Zip64KitTests + IPAPatcherCoreTests）
-├── Bridge/                             # 自维护数据驱动桥接源码（ABLoginBridge.dylib）与打包脚本
-└── docs/
-    ├── index.html                      # GitHub Pages 项目主页
-    └── PROFILE_FORMAT.md               # 手工适配配置规范（JSON / Plist）
+ios-ipa-tool/
+├── App/                        # SwiftUI iOS 主程序（视图、状态协调、本地暂存管理）
+├── Bridge/                     # Objective-C/C 运行时桥接源码（ABRuntime / ABHook 等）
+├── Packages/IPAPatcherCore/    # 核心修补引擎（Zip64Kit、Mach-O 解析、IL2CPP 自动定位、CLI）
+├── Tests/                      # 核心单元测试与回归测试
+├── docs/                       # GitHub Pages 静态主页与界面资源
+└── project.yml                 # XcodeGen 工程配置
 ```
+
+> **说明**：出于体积与版权合规考虑，内置二进制资源包 `payload.zip` 与构建产物 `*.ipa` 已通过 `.gitignore` 排除，不会提交至 Git 仓库；可直接前往 [Releases](https://github.com/MiohalationM/ArknightsPatcher/releases) 下载已打包的待签名 IPA，或自行构建后注入资源使用。
 
 ---
 
-## 开发者构建与测试（Mac）
+## 快速开始
 
-### 1. 运行核心包测试
-> 注：由于源码仓库不含闭源 `payload.zip`，运行依赖内置底座的集成测试或编译完整 App 前，需先自行准备本地 `carrier-2.7.91/payload.zip`（详见 [Bridge/README.md](Bridge/README.md)）。
+### 方式一：直接下载 IPA 安装（推荐）
+1. 前往 [Releases 页面](https://github.com/MiohalationM/ArknightsPatcher/releases) 下载最新 `ArknightsPatcher-*-unsigned.ipa`。
+2. 使用 AltStore / SideStore / Sideloadly / 巨魔商店（TrollStore）等常用工具签名并安装到 iPhone / iPad。
+3. 在 App 内选择已解密的《明日方舟》官服 IPA，等待复核通过后导出待签名 IPA 并安装即可。
 
-```sh
-cd Packages/IPAPatcherCore
-swift test
-```
+### 方式二：本地源码构建
+```bash
+# 1. 运行核心单元测试
+swift test --package-path Packages/IPAPatcherCore
 
-### 2. macOS CLI 工具
-```sh
-cd Packages/IPAPatcherCore
-
-# 查看 IPA 宿主信息与 IL2CPP 探测结果
-swift run ipa-patcher-cli inspect /path/to/Arknights-decrypted.ipa
-
-# 盲测 IL2CPP 自动定位并与 2.7.91 基准逐项对照
-swift run ipa-patcher-cli self-check /path/to/Arknights-2.7.91-decrypted.ipa
-
-# 命令行修补（支持保留原版图标、指定手工配置、--force 原子替换）
-swift run ipa-patcher-cli patch /path/to/Arknights.ipa /tmp/out \
-  --original-icon \
-  --profile /path/to/profile.json
-```
-
-### 3. 重新生成 Xcode 工程并编译 Release IPA
-```sh
+# 2. 生成 Xcode 工程（需安装 xcodegen）
 xcodegen generate
 
-xcodebuild \
-  -project ArknightsPatcher.xcodeproj \
-  -scheme ArknightsPatcher \
-  -configuration Release \
-  -destination 'generic/platform=iOS' \
-  -derivedDataPath /tmp/arknights-patcher-build \
-  CODE_SIGNING_ALLOWED=NO \
-  CODE_SIGNING_REQUIRED=NO \
-  CODE_SIGN_IDENTITY="" \
-  build
+# 3. 使用 Xcode 打开 ArknightsPatcher.xcodeproj 构建运行
 ```
 
 ---
 
-## 免责声明
+## 免责声明与开源协议
 
-- 本项目仅用于 **iOS 逆向工程、Mach-O 动态注入与 Unity IL2CPP 元数据结构研究与学习**，使用 [MIT License](LICENSE) 开源。
-- 本工具 **不提供任何解密、绕过 DRM 或破解功能**，亦不在源码仓库中分发任何游戏本体或第三方闭源商业 SDK 二进制。
-- 请勿将本项目用于任何商业用途或违反相关游戏服务条款的行为，使用本工具所产生的一切风险由使用者自行承担。
+> [!WARNING]
+> **重要免责声明（使用前请仔细阅读）**
+>
+> 1. **学习与技术研究用途**：本项目仅用于 iOS IPA 打包结构（ZIP64）、Mach-O 载入机制与 IL2CPP 元数据解析的技术学习与开源交流，**不提供、不分发任何游戏本体、已解密 IPA 文件或受版权保护的游戏资源**。
+> 2. **账号与合规风险自负**：使用第三方修改或重签名客户端登录游戏可能违反游戏发行方或平台的服务条款（ToS），由此可能产生的一切账号封禁、数据异常或其他损失均由使用者自行承担，本项目作者与贡献者不承担任何直接或连带责任。
+> 3. **严禁商业用途**：严禁将本项目或其衍生构建产物用于任何商业贩卖、付费代打包、捆绑推广或违法违规用途。
+> 4. **开源协议**：本项目源代码基于 [MIT License](LICENSE) 开源；引用的第三方游戏资源、图标或桥接依赖的知识产权归其各自权利人所有。若任何权利人认为本仓库内容涉及侵权，请联系仓库维护者及时处理。
