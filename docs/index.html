@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>方舟补丁工具 · ArknightsPatcher</title>
+  <meta name="description" content="纯手机端离线修补已解密《明日方舟》iOS IPA 的原生 SwiftUI 工具，支持三层适配、单 IPA IL2CPP 自动定位与全量 CRC32 复核。">
+  <style>
+    :root {
+      --bg: #f5f5f7;
+      --card: #ffffff;
+      --text: #1d1d1f;
+      --muted: #6e6e73;
+      --border: rgba(0, 0, 0, 0.08);
+      --accent: #0071e3;
+      --accent-soft: rgba(0, 113, 227, 0.12);
+      --green: #248a3d;
+      --green-soft: rgba(36, 138, 61, 0.12);
+      --code-bg: #f2f2f7;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #000000;
+        --card: #1c1c1e;
+        --text: #f5f5f7;
+        --muted: #98989d;
+        --border: rgba(255, 255, 255, 0.1);
+        --accent: #0a84ff;
+        --accent-soft: rgba(10, 132, 255, 0.18);
+        --green: #30d158;
+        --green-soft: rgba(48, 209, 88, 0.16);
+        --code-bg: #2c2c2e;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .container {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 40px 20px 72px;
+    }
+    .hero {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 44px 36px;
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    .badge-row {
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: center;
+      margin-bottom: 18px;
+    }
+    .pill {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+    .pill.green {
+      background: var(--green-soft);
+      color: var(--green);
+    }
+    h1 {
+      font-size: clamp(28px, 4.5vw, 42px);
+      line-height: 1.15;
+      margin: 0 0 14px;
+      letter-spacing: -0.02em;
+    }
+    .subtitle {
+      font-size: 17px;
+      color: var(--muted);
+      max-width: 680px;
+      margin: 0 auto 28px;
+    }
+    .cta-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      justify-content: center;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 12px 22px;
+      border-radius: 999px;
+      font-size: 15px;
+      font-weight: 600;
+      transition: transform 0.15s ease, opacity 0.15s ease;
+    }
+    .btn:hover { text-decoration: none; opacity: 0.92; transform: translateY(-1px); }
+    .btn-primary {
+      background: var(--accent);
+      color: #ffffff;
+    }
+    .btn-secondary {
+      background: var(--code-bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 24px;
+    }
+    .card h2, .card h3 {
+      margin: 0 0 10px;
+      font-size: 18px;
+    }
+    .card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .section-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 28px;
+      margin-bottom: 20px;
+    }
+    .section-card h2 {
+      margin: 0 0 14px;
+      font-size: 20px;
+    }
+    .tier-list {
+      display: grid;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .tier-item {
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+      padding: 14px 16px;
+      border-radius: 14px;
+      background: var(--code-bg);
+    }
+    .tier-num {
+      flex-shrink: 0;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 2px;
+    }
+    .tier-item strong { display: block; margin-bottom: 2px; font-size: 15px; }
+    .tier-item span { font-size: 13.5px; color: var(--muted); }
+    .meta-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    .meta-table td {
+      padding: 10px 4px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    .meta-table tr:last-child td { border-bottom: none; }
+    .meta-table td:first-child {
+      color: var(--muted);
+      width: 140px;
+      white-space: nowrap;
+    }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12.5px;
+      background: var(--code-bg);
+      padding: 2px 6px;
+      border-radius: 6px;
+      word-break: break-all;
+    }
+    footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 32px;
+    }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <section class="hero">
+      <div class="badge-row">
+        <span class="pill green">v1.0.0 · Build 13</span>
+        <span class="pill">Swift 6 · iOS 27.0+</span>
+        <span class="pill">纯本机离线处理</span>
+      </div>
+      <h1>方舟补丁工具 · ArknightsPatcher</h1>
+      <p class="subtitle">
+        无需电脑、不联网、不修改原始安装包。在 iPhone 本机将已解密的官方《明日方舟》IPA 流式重打包为支持 B 服切换与登录的待签名 IPA。
+      </p>
+      <div class="cta-group">
+        <a class="btn btn-primary" href="https://github.com/MiohalationM/ArknightsPatcher/releases/latest">下载最新 IPA (Release)</a>
+        <a class="btn btn-secondary" href="https://github.com/MiohalationM/ArknightsPatcher">查看 GitHub 源码</a>
+        <a class="btn btn-secondary" href="https://github.com/lazhire/Arknights-Bilibili-for-IOS">参考上游项目</a>
+      </div>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <h3>单遍流式 ZIP64</h3>
+        <p>内置纯 Swift + 系统 zlib 的 <code>Zip64Kit</code>，未改资源 2 MB 分块直通写入，成品导出前 100% 校验 CRC32 与补丁 SHA-256。</p>
+      </article>
+      <article class="card">
+        <h3>数据驱动源码桥接</h3>
+        <p>自维护 <code>ABLoginBridge.dylib</code> 从主包 <code>ABRuntimeProfile.plist</code> 动态读取版本指纹与偏移，告别硬编码 ObjC IMP。</p>
+      </article>
+      <article class="card">
+        <h3>图标自由切换</h3>
+        <p>支持「B 服图标」与「保留原版」一键切换，满足官/B 双端桌面区分或保留原版图标的偏好需求。</p>
+      </article>
+    </section>
+
+    <section class="section-card">
+      <h2>三层适配优先级（未来更新无需重装 App）</h2>
+      <div class="tier-list">
+        <div class="tier-item">
+          <span class="tier-num">1</span>
+          <div>
+            <strong>手工导入适配配置（最高优先级）</strong>
+            <span>导入几 KB 的 <code>.json</code> 或 <code>ABRuntimeProfile.plist</code>，按 Bundle ID、版本、构建号与 <code>UnityFramework</code> UUID 精准匹配，新版本无需重新编译 App。</span>
+          </div>
+        </div>
+        <div class="tier-item">
+          <span class="tier-num">2</span>
+          <div>
+            <strong>内置已验证基准（2.7.91 / build 76）</strong>
+            <span>严格核验全部 6 个宿主二进制 UUID 与加密状态，沿用真机实测通过的 B 服路由与登录流程。</span>
+          </div>
+        </div>
+        <div class="tier-item">
+          <span class="tier-num">3</span>
+          <div>
+            <strong>本机单 IPA IL2CPP 自动定位（可选开关）</strong>
+            <span>直接解析明文 <code>global-metadata.dat</code>（v27/v29/v31）与 <code>UnityFramework</code>（支持 <code>LC_DYLD_CHAINED_FIXUPS</code> 与 ARM64 <code>ADRP+LDR</code> 双重印证），校验字节级结构体 ABI 通过后方允许导出。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section-card">
+      <h2>最新发行版与校验指纹</h2>
+      <table class="meta-table">
+        <tr>
+          <td>最新版本号</td>
+          <td><code>v1.0.0-build13</code>（未签名 IPA，需配合个人签名工具安装）</td>
+        </tr>
+        <tr>
+          <td>文件名</td>
+          <td><code>ArknightsPatcher-1.0.0-build13-unsigned.ipa</code>（5.5 MB）</td>
+        </tr>
+        <tr>
+          <td>SHA-256</td>
+          <td><code>6abb76e8901df68951ddaf4faddff999a115b736488d5b299c1f9517e899d0da</code></td>
+        </tr>
+        <tr>
+          <td>参考项目</td>
+          <td><a href="https://github.com/lazhire/Arknights-Bilibili-for-IOS">https://github.com/lazhire/Arknights-Bilibili-for-IOS</a></td>
+        </tr>
+        <tr>
+          <td>仓库开源范围</td>
+          <td>开源仓库仅托管纯源码与文档，不包含闭源第三方 SDK <code>payload.zip</code> 与游戏本体。</td>
+        </tr>
+      </table>
+    </section>
+
+    <footer>
+      <p>仅用于 iOS Mach-O / IL2CPP 技术研究与学习 · 本工具不执行解密、不签名、不上传任何数据 · MIT License</p>
+    </footer>
+  </main>
+</body>
+</html>

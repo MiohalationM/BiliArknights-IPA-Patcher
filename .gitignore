@@ -1,0 +1,19 @@
+# macOS & Xcode
+.DS_Store
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+xcuserdata/
+DerivedData/
+
+# Swift Package Manager
+.swiftpm/xcode/
+Packages/IPAPatcherCore/.build/
+Packages/IPAPatcherCore/.swiftpm/
+
+# Build artifacts & unsigned IPAs (published via GitHub Releases instead)
+Bridge/build/
+dist/
+*.ipa
+
+# Closed-source third-party SDK carrier payload (excluded from source repository)
+Packages/IPAPatcherCore/Sources/IPAPatcherCore/Resources/Kits/*/payload.zip

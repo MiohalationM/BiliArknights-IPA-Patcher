@@ -1,0 +1,82 @@
+name: ArknightsPatcher
+options:
+  bundleIdPrefix: com.biios
+  deploymentTarget:
+    iOS: "27.0"
+  xcodeVersion: "27.2"
+  createIntermediateGroups: true
+packages:
+  IPAPatcherCore:
+    path: Packages/IPAPatcherCore
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "27.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ""
+targets:
+  ArknightsPatcher:
+    type: application
+    platform: iOS
+    deploymentTarget: "27.0"
+    sources:
+      - path: App
+        excludes:
+          - "**/.DS_Store"
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDevelopmentRegion: zh_CN
+        CFBundleDisplayName: 方舟补丁工具
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        LSRequiresIPhoneOS: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UIFileSharingEnabled: false
+        UILaunchScreen:
+          UIColorName: AccentColor
+        UIRequiredDeviceCapabilities:
+          - arm64
+        UIRequiresFullScreen: true
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: iOS App Package
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - com.apple.itunes.ipa
+              - public.data
+          - CFBundleTypeName: Patch Adaptation Profile
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.json
+              - com.apple.property-list
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.biios.arknights-patcher
+        PRODUCT_NAME: ArknightsPatcher
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "13"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        INFOPLIST_FILE: App/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        SWIFT_STRICT_CONCURRENCY: complete
+        ENABLE_USER_SCRIPT_SANDBOXING: YES
+    dependencies:
+      - package: IPAPatcherCore
+        product: IPAPatcherCore
+schemes:
+  ArknightsPatcher:
+    build:
+      targets:
+        ArknightsPatcher: all
+    run:
+      config: Debug
+    archive:
+      config: Release
