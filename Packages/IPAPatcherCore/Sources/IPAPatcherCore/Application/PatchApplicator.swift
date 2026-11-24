@@ -61,22 +61,38 @@ public struct PatchApplicator: Sendable {
         workingDirectory: URL,
         options: PatchOptions = .default,
         inputSession: PatchInputSession? = nil,
+        preloadedKit: LoadedVerifiedKit? = nil,
         overwriteExistingOutput: Bool = false,
         onProgress: (@Sendable (PatchProgress) -> Void)? = nil
     ) throws -> PatchExecutionResult {
         let startTime = Date()
         try Task.checkCancellation()
 
-        // Step A: Re-verify built-in kit integrity & load payload entries.
-        onProgress?(
-            PatchProgress(
-                stage: .preflightValidating,
-                fractionCompleted: 0.05,
-                detailMessage: "正在加载并校验补丁底座内全部条目哈希…"
+        // Step A: Reuse pre-verified kit overlay when supplied by the same pipeline invocation,
+        // avoiding redundant decompression & SHA-256 hashing of all 200+ payload entries.
+        let loadedKit: LoadedVerifiedKit
+        if let preloadedKit,
+           preloadedKit.verifiedKit.profile == configuration.profile,
+           preloadedKit.verifiedKit.manifestSHA256 == configuration.verifiedKit.manifestSHA256 {
+            onProgress?(
+                PatchProgress(
+                    stage: .preflightValidating,
+                    fractionCompleted: 0.05,
+                    detailMessage: "正在准备补丁组件…"
+                )
             )
-        )
-        let verifier = KitIntegrityVerifier()
-        let loadedKit = try verifier.loadAndVerifyOverlay(profile: configuration.profile)
+            loadedKit = preloadedKit
+        } else {
+            onProgress?(
+                PatchProgress(
+                    stage: .preflightValidating,
+                    fractionCompleted: 0.05,
+                    detailMessage: "正在校验并加载补丁组件…"
+                )
+            )
+            let verifier = KitIntegrityVerifier()
+            loadedKit = try verifier.loadAndVerifyOverlay(profile: configuration.profile)
+        }
         let manifest = loadedKit.verifiedKit.manifest
 
         // Step B: Reuse scoped read-only session (single FD & cached UnityFramework) or open read-only once.
@@ -84,7 +100,7 @@ public struct PatchApplicator: Sendable {
             PatchProgress(
                 stage: .preflightValidating,
                 fractionCompleted: 0.20,
-                detailMessage: "正在执行完整预检：宿主元数据、架构、UUID 与加密状态…"
+                detailMessage: "正在检查安装包版本与砸壳状态…"
             )
         )
         let session: PatchInputSession
@@ -151,7 +167,7 @@ public struct PatchApplicator: Sendable {
             PatchProgress(
                 stage: .preflightValidating,
                 fractionCompleted: 0.50,
-                detailMessage: "正在校验代码段指纹并自动定位 Mach-O 注入位点…"
+                detailMessage: "正在写入 B 服桥接组件…"
             )
         )
         var overlay = loadedKit.payloadOverlay
@@ -181,13 +197,14 @@ public struct PatchApplicator: Sendable {
         }
 
         let unityRelPath = manifest.appRoot + "Frameworks/UnityFramework.framework/UnityFramework"
-        var hostOverlay: [String: Data] = [:]
+        var hostModifiedPaths = Set<String>()
 
         for binaryPath in binariesToModify.sorted() {
             try Task.checkCancellation()
             var raw: Data
             if binaryPath == unityRelPath {
-                raw = try session.readUnityFrameworkData(at: binaryPath)
+                // Take unique ownership out of session cache to avoid ~200 MB CoW duplication during injection.
+                raw = try session.takeUnityFrameworkData(at: binaryPath)
             } else {
                 do {
                     raw = try sourceReader.readData(named: binaryPath)
@@ -195,6 +212,27 @@ public struct PatchApplicator: Sendable {
                     throw CancellationError()
                 } catch let zipError as ZipError {
                     throw PatchError.zipFailure(zipError)
+                }
+            }
+
+            // Preflight-verify runtime offset alignment & Mach-O segment bounds for custom/auto profiles BEFORE writing output.
+            if binaryPath == unityRelPath,
+               let rtProfile = configuration.runtimeOffsetProfile {
+                let offsetMismatches = MachOParser.validateRuntimeOffsets(rtProfile.il2cppOffsets, againstMachOData: raw)
+                if !offsetMismatches.isEmpty {
+                    throw PatchError.incompatibleHost(
+                        IncompatibilityReport(
+                            actualBundleID: freshHostProfile.bundleID,
+                            actualVersion: freshHostProfile.version,
+                            actualBuild: freshHostProfile.build,
+                            actualAppRoot: freshHostProfile.appRoot,
+                            isEncrypted: freshHostProfile.isEncrypted,
+                            targetRevision: rtProfile.revision,
+                            targetVersion: rtProfile.version,
+                            targetBuild: rtProfile.build,
+                            mismatches: offsetMismatches
+                        )
+                    )
                 }
             }
 
@@ -242,29 +280,25 @@ public struct PatchApplicator: Sendable {
                 raw = try BinaryRangePatcher.apply(raw: raw, spec: patchSpec, binaryPath: binaryPath)
             }
             if let dynSpec = manifest.dynamicDylibInjection, dynSpec.targetBinary == binaryPath {
-                let injected = try MachODylibInjector.inject(
+                _ = try MachODylibInjector.injectInPlace(
                     dylibLoadPath: dynSpec.dylibLoadPath,
-                    into: raw,
+                    into: &raw,
                     binaryPath: binaryPath
                 )
-                raw = injected.data
             }
-            hostOverlay[binaryPath] = raw
+            overlay[binaryPath] = raw
+            hostModifiedPaths.insert(binaryPath)
         }
 
-        // Release raw cached UnityFramework buffer immediately to minimize peak memory during ZIP repackaging.
+        // Ensure session cache is released before repackaging.
         session.releaseUnityCache()
-
-        for (path, data) in hostOverlay {
-            overlay[path] = data
-        }
 
         // Step D: Dynamically merge B-server delta into host Info.plist & verify metadata.
         onProgress?(
             PatchProgress(
                 stage: .preflightValidating,
                 fractionCompleted: 0.80,
-                detailMessage: "正在合并宿主 Info.plist 并验证输出可执行文件结构…"
+                detailMessage: "正在更新游戏配置与桌面图标信息…"
             )
         )
         let effectiveRevision = configuration.effectiveRevision
@@ -295,7 +329,7 @@ public struct PatchApplicator: Sendable {
             throw PatchError.invalidPatchedMetadata("补丁后 Info.plist 缺少 ABPackagingRevision 或包名不匹配")
         }
 
-        for (path, raw) in overlay where hostOverlay[path] != nil || path.hasSuffix(".dylib") {
+        for (path, raw) in overlay where hostModifiedPaths.contains(path) || path.hasSuffix(".dylib") {
             try Task.checkCancellation()
             let slices = try MachOParser.parseSlices(data: raw, binaryPath: path, includeSHA256: false)
             if slices.contains(where: \.isEncrypted) {
@@ -341,7 +375,7 @@ public struct PatchApplicator: Sendable {
             PatchProgress(
                 stage: .preflightValidating,
                 fractionCompleted: 1.0,
-                detailMessage: "完整预检全部通过，准备开始分块重打包…"
+                detailMessage: "检查全部通过，即将开始打包…"
             )
         )
 
@@ -383,7 +417,7 @@ public struct PatchApplicator: Sendable {
                     continue
                 }
 
-                if let overlayData = overlay[name] {
+                if let overlayData = overlay.removeValue(forKey: name) {
                     let written = try writer.writeDeflatedEntry(
                         name: name,
                         data: overlayData,
@@ -416,7 +450,7 @@ public struct PatchApplicator: Sendable {
                                 totalEntries: totalSteps,
                                 processedBytes: processedBytes,
                                 totalBytes: totalBytesToCopy,
-                                detailMessage: "正在分块写入：\(URL(fileURLWithPath: name).lastPathComponent)"
+                                detailMessage: "正在写入游戏资源：\(URL(fileURLWithPath: name).lastPathComponent)"
                             )
                         )
                     }
@@ -436,16 +470,36 @@ public struct PatchApplicator: Sendable {
                             totalEntries: totalSteps,
                             processedBytes: processedBytes,
                             totalBytes: totalBytesToCopy,
-                            detailMessage: "正在重打包条目（\(processedCount)/\(sourceEntries.count)）…"
+                            detailMessage: "正在打包游戏文件（\(processedCount)/\(sourceEntries.count)）…"
                         )
                     )
                 }
             }
 
             let newEntryNames = Set(overlay.keys).subtracting(writtenNames).sorted()
+            // Emit explicit parent directory entries for newly added nested bundles/folders if not yet present.
+            var missingParentDirs = Set<String>()
+            for name in newEntryNames {
+                let parts = name.split(separator: "/")
+                if parts.count > 1 {
+                    var prefix = ""
+                    for component in parts.dropLast() {
+                        prefix += component + "/"
+                        if !writtenNames.contains(prefix) {
+                            missingParentDirs.insert(prefix)
+                        }
+                    }
+                }
+            }
+            for dirName in missingParentDirs.sorted() {
+                try Task.checkCancellation()
+                try writer.writeDirectoryEntry(name: dirName)
+                writtenNames.insert(dirName)
+            }
+
             for name in newEntryNames {
                 try Task.checkCancellation()
-                guard let data = overlay[name] else { continue }
+                guard let data = overlay.removeValue(forKey: name) else { continue }
                 let posixMode: UInt32 = name.hasSuffix(".dylib") ? 0o100755 : 0o100644
                 try writer.writeDeflatedEntry(
                     name: name,
@@ -459,6 +513,9 @@ public struct PatchApplicator: Sendable {
                 processedCount += 1
             }
 
+            // Release all remaining overlay buffers before full output verification.
+            overlay.removeAll(keepingCapacity: false)
+
             onProgress?(
                 PatchProgress(
                     stage: .repackaging,
@@ -467,75 +524,82 @@ public struct PatchApplicator: Sendable {
                     totalEntries: writtenNames.count,
                     processedBytes: processedBytes,
                     totalBytes: max(totalBytesToCopy, processedBytes),
-                    detailMessage: "正在写入 ZIP64 中央目录…"
+                    detailMessage: "正在完成安装包封装…"
                 )
             )
             try writer.finish()
 
             // Step G: Mandatory full output verification BEFORE exposing final file.
+            // Scoped so `outReader` closes its file descriptor before atomic `moveItem`/`replaceItemAt`.
             onProgress?(
                 PatchProgress(
                     stage: .verifyingOutput,
                     fractionCompleted: 0.02,
-                    detailMessage: "正在重新打开成品并复核全部条目 CRC32 与补丁哈希…"
+                    detailMessage: "正在核对成品安装包完整性…"
                 )
             )
-            let outReader = try Zip64Reader(url: partialURL)
-            let expectedInventory = writtenNames.union(Set(overlay.keys))
-            let actualInventory = Set(outReader.entryNames)
-            guard actualInventory == expectedInventory else {
-                throw PatchError.outputVerificationFailed(
-                    "输出条目清单不一致（期望 \(expectedInventory.count) 项，实际 \(actualInventory.count) 项）"
-                )
-            }
-
-            let totalVerifyEntries = outReader.entries.count
-            let totalVerifyBytes = outReader.entries.reduce(UInt64(0)) { $0 &+ $1.uncompressedSize }
+            let outputBytes: UInt64
+            let totalVerifyEntries: Int
             var verifiedBytes: UInt64 = 0
+            let totalVerifyBytes: UInt64
 
-            for (idx, entry) in outReader.entries.enumerated() {
-                try Task.checkCancellation()
-
-                if let expectedHash = overlayExpectedSHA256[entry.name] {
-                    var hasher = SHA256()
-                    try outReader.streamDecompressed(entry: entry) { chunk in
-                        hasher.update(data: chunk)
-                        verifiedBytes &+= UInt64(chunk.count)
-                    }
-                    let actualHash = hasher.finalize().hexString
-                    guard actualHash == expectedHash else {
-                        throw PatchError.outputVerificationFailed("补丁输出哈希不一致：\(entry.name)")
-                    }
-                } else {
-                    try outReader.streamDecompressed(entry: entry) { chunk in
-                        verifiedBytes &+= UInt64(chunk.count)
-                    }
-                    if let expectedFP = unchangedFingerprints[entry.name] {
-                        guard entry.crc32 == expectedFP.crc32 && entry.uncompressedSize == expectedFP.size else {
-                            throw PatchError.outputVerificationFailed("保留资源发生意外变更：\(entry.name)")
-                        }
-                    }
-                }
-
-                if (idx + 1) % 16 == 0 || (idx + 1) == totalVerifyEntries {
-                    let frac = totalVerifyBytes > 0
-                        ? min(0.92, Double(verifiedBytes) / Double(totalVerifyBytes) * 0.92)
-                        : (Double(idx + 1) / Double(max(1, totalVerifyEntries)) * 0.92)
-                    onProgress?(
-                        PatchProgress(
-                            stage: .verifyingOutput,
-                            fractionCompleted: frac,
-                            completedEntries: idx + 1,
-                            totalEntries: totalVerifyEntries,
-                            processedBytes: verifiedBytes,
-                            totalBytes: totalVerifyBytes,
-                            detailMessage: "正在复核 CRC32（\(idx + 1)/\(totalVerifyEntries)）…"
-                        )
+            do {
+                let outReader = try Zip64Reader(url: partialURL)
+                let expectedInventory = writtenNames.union(Set(overlayExpectedSHA256.keys))
+                let actualInventory = Set(outReader.entryNames)
+                guard actualInventory == expectedInventory else {
+                    throw PatchError.outputVerificationFailed(
+                        "输出条目清单不一致（期望 \(expectedInventory.count) 项，实际 \(actualInventory.count) 项）"
                     )
                 }
-            }
 
-            let outputBytes = outReader.fileSize
+                totalVerifyEntries = outReader.entries.count
+                totalVerifyBytes = outReader.entries.reduce(UInt64(0)) { $0 &+ $1.uncompressedSize }
+
+                for (idx, entry) in outReader.entries.enumerated() {
+                    try Task.checkCancellation()
+
+                    if let expectedHash = overlayExpectedSHA256[entry.name] {
+                        var hasher = SHA256()
+                        try outReader.streamDecompressedBuffer(entry: entry) { buffer in
+                            hasher.update(bufferPointer: buffer)
+                            verifiedBytes &+= UInt64(buffer.count)
+                        }
+                        let actualHash = hasher.finalize().hexString
+                        guard actualHash == expectedHash else {
+                            throw PatchError.outputVerificationFailed("补丁输出哈希不一致：\(entry.name)")
+                        }
+                    } else {
+                        try outReader.streamDecompressedBuffer(entry: entry) { buffer in
+                            verifiedBytes &+= UInt64(buffer.count)
+                        }
+                        if let expectedFP = unchangedFingerprints[entry.name] {
+                            guard entry.crc32 == expectedFP.crc32 && entry.uncompressedSize == expectedFP.size else {
+                                throw PatchError.outputVerificationFailed("保留资源发生意外变更：\(entry.name)")
+                            }
+                        }
+                    }
+
+                    if (idx + 1) % 16 == 0 || (idx + 1) == totalVerifyEntries {
+                        let frac = totalVerifyBytes > 0
+                            ? min(0.92, Double(verifiedBytes) / Double(totalVerifyBytes) * 0.92)
+                            : (Double(idx + 1) / Double(max(1, totalVerifyEntries)) * 0.92)
+                        onProgress?(
+                            PatchProgress(
+                                stage: .verifyingOutput,
+                                fractionCompleted: frac,
+                                completedEntries: idx + 1,
+                                totalEntries: totalVerifyEntries,
+                                processedBytes: verifiedBytes,
+                                totalBytes: totalVerifyBytes,
+                                detailMessage: "正在校验文件完整性（\(idx + 1)/\(totalVerifyEntries)）…"
+                            )
+                        )
+                    }
+                }
+
+                outputBytes = outReader.fileSize
+            }
 
             // Atomic commit `.partial` -> `finalURL` ONLY after 100% verification succeeds.
             try Task.checkCancellation()
@@ -557,7 +621,7 @@ public struct PatchApplicator: Sendable {
                     totalEntries: totalVerifyEntries,
                     processedBytes: verifiedBytes,
                     totalBytes: totalVerifyBytes,
-                    detailMessage: "输出复核全部通过，可安全导出"
+                    detailMessage: "全部校验通过，已可安全导出"
                 )
             )
 
@@ -575,7 +639,8 @@ public struct PatchApplicator: Sendable {
                 durationSeconds: Date().timeIntervalSince(startTime),
                 adaptationMode: configuration.adaptationMode,
                 appliedCustomBiliIcons: options.applyCustomBiliIcons,
-                profileDisplayName: configuration.runtimeOffsetProfile?.name
+                profileDisplayName: configuration.runtimeOffsetProfile?.name,
+                generatedRuntimeProfile: configuration.adaptationMode == .autoResolved ? configuration.runtimeOffsetProfile : nil
             )
         } catch is CancellationError {
             writer.abortAndRemove()

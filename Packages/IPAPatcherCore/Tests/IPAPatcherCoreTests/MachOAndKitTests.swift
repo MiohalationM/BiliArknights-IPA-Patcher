@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import XCTest
 @testable import IPAPatcherCore
@@ -29,6 +30,41 @@ final class MachOAndKitTests: XCTestCase {
         XCTAssertEqual(fatSlices.map(\.architectureName), ["arm64", "x86_64"])
 
         XCTAssertThrowsError(try MachOParser.parseSlices(data: Data([0x01, 0x02, 0x03]), binaryPath: "Tiny"))
+
+        // Nested Fat Mach-O inside a Fat slice must be rejected instead of recursing unboundedly.
+        let nestedFat = SyntheticIPABuilder.makeFat32(slices: [
+            (MachOSliceInfo.cpuTypeARM64, fat)
+        ])
+        XCTAssertThrowsError(try MachOParser.parseSlices(data: nestedFat, binaryPath: "NestedFat"))
+    }
+
+    func testBinaryRangePatcherValidatesBeforeAndAfterSHA256() throws {
+        let original = Data([0x10, 0x20, 0x30, 0x40, 0x50])
+        let expectedPatched = Data([0x10, 0xAA, 0xBB, 0x40, 0x50])
+        let beforeSHA = SHA256.hash(data: original).hexString
+        let afterSHA = SHA256.hash(data: expectedPatched).hexString
+
+        let validSpec = PatchKitManifest.BinaryPatchSpec(
+            beforeSHA256: beforeSHA,
+            afterSHA256: afterSHA,
+            ranges: [.init(offset: 1, before: "2030", after: "aabb")]
+        )
+        let patched = try BinaryRangePatcher.apply(raw: original, spec: validSpec, binaryPath: "TestBin")
+        XCTAssertEqual(patched, expectedPatched)
+
+        let wrongBeforeSpec = PatchKitManifest.BinaryPatchSpec(
+            beforeSHA256: String(repeating: "0", count: 64),
+            afterSHA256: afterSHA,
+            ranges: [.init(offset: 1, before: "2030", after: "aabb")]
+        )
+        XCTAssertThrowsError(try BinaryRangePatcher.apply(raw: original, spec: wrongBeforeSpec, binaryPath: "TestBin"))
+
+        let wrongAfterSpec = PatchKitManifest.BinaryPatchSpec(
+            beforeSHA256: beforeSHA,
+            afterSHA256: String(repeating: "f", count: 64),
+            ranges: [.init(offset: 1, before: "2030", after: "aabb")]
+        )
+        XCTAssertThrowsError(try BinaryRangePatcher.apply(raw: original, spec: wrongAfterSpec, binaryPath: "TestBin"))
     }
 
     func testDynamicMachOInjectorMatchesBaselineAndBlocksDuplicateInjection() throws {
@@ -114,12 +150,17 @@ final class MachOAndKitTests: XCTestCase {
     }
 
     func testBuiltInCarrierKitIntegrityVerification() throws {
-        let engine = try IPAPatcherEngine.builtInDefault()
+        let engine: IPAPatcherEngine
+        do {
+            engine = try IPAPatcherEngine.builtInDefault()
+        } catch PatchError.missingBuiltInKit {
+            throw XCTSkip("Skipped: closed-source payload.zip is excluded from the public source repository.")
+        }
         let kits = try engine.verifyConfiguredKits()
         XCTAssertEqual(kits.count, 1)
         let kit = kits[0]
         XCTAssertEqual(kit.manifestSHA256, BuiltInKitRepository.lockedManifestSHA256)
-        XCTAssertEqual(kit.manifest.revision, "7.5-2.7.91-bridge-carrier-r4")
+        XCTAssertEqual(kit.manifest.revision, "7.5-2.7.91-bridge-carrier-r5")
         XCTAssertEqual(kit.manifest.version, "2.7.91")
         XCTAssertEqual(kit.manifest.build, "76")
         XCTAssertEqual(kit.payloadEntryCount, 206)
@@ -135,9 +176,10 @@ final class MachOAndKitTests: XCTestCase {
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let engine = try IPAPatcherEngine.builtInDefault()
-        let kits = try engine.verifyConfiguredKits()
-        let manifest = kits[0].manifest
+        let kitCtx = try SyntheticIPABuilder.createSyntheticKitEngine(in: tempDir)
+        let engine = kitCtx.engine
+        let kits = kitCtx.verifiedKits
+        let manifest = kitCtx.manifest
 
         // 1. Exact matching IPA + IL2CPP metadata probe
         let matchingIPA = tempDir.appendingPathComponent("matching.ipa")
@@ -157,7 +199,7 @@ final class MachOAndKitTests: XCTestCase {
         guard case .matched(let config) = matchResult else {
             return XCTFail("Expected exact match")
         }
-        XCTAssertEqual(config.manifest.revision, "7.5-2.7.91-bridge-carrier-r4")
+        XCTAssertEqual(config.manifest.revision, "7.5-2.7.91-bridge-carrier-r5")
 
         // 2. Incompatible IPA with multiple mismatches simultaneously
         var badConfig = SyntheticIPABuilder.Configuration()

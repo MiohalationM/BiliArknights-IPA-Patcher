@@ -4,158 +4,489 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>明日方舟 B 服 iOS 补丁工具 · BiliArknights IPA Patcher</title>
-  <meta name="description" content="在 iPhone / iPad 上直接给已解密的《明日方舟》官服 IPA 打上 B 服（哔哩哔哩）登录补丁，生成待签名 IPA。" />
-  <meta name="keywords" content="明日方舟, B服, 哔哩哔哩, iOS, Arknights, Bilibili, IPA, IL2CPP" />
-  <meta property="og:title" content="明日方舟 B 服 iOS 补丁工具" />
-  <meta property="og:description" content="在 iOS 设备上本地给已解密的《明日方舟》IPA 打上 B 服（哔哩哔哩）登录补丁。" />
-  <meta property="og:image" content="assets/app-icon.png" />
+  <meta name="description" content="在 iPhone / iPad 上直接给《明日方舟》官服砸壳 IPA 打上 B 服（哔哩哔哩）登录补丁，全程离线、十几秒生成待签名安装包。" />
+  <meta name="keywords" content="明日方舟, B服, 哔哩哔哩, iOS, iPadOS, 砸壳 IPA, Arknights, Bilibili, IPA, TrollStore" />
+  <meta property="og:title" content="明日方舟 B 服 iOS 补丁工具 · v1.1.0" />
+  <meta property="og:description" content="支持 iOS / iPadOS 16.0+，本机离线给《明日方舟》官服砸壳 IPA 打上 B 服登录补丁，内置游戏内暗色切服菜单。" />
+  <meta property="og:image" content="https://miohalationm.github.io/BiliArknights-IPA-Patcher/assets/screenshot-ingame.jpg" />
+  <meta property="og:url" content="https://miohalationm.github.io/BiliArknights-IPA-Patcher/" />
   <link rel="icon" type="image/png" href="assets/app-icon.png" />
   <link rel="apple-touch-icon" href="assets/app-icon.png" />
   <style>
     :root {
-      --bg: #0d1117;
-      --surface: #161b22;
-      --border: #30363d;
-      --text: #e6edf3;
-      --sub: #8b949e;
+      --bg: #070c14;
+      --bg-glow: rgba(56, 189, 248, 0.14);
+      --surface: #0f1724;
+      --surface-2: #142033;
+      --surface-hover: #1a2940;
+      --border: rgba(148, 197, 255, 0.14);
+      --border-strong: rgba(56, 189, 248, 0.32);
+      --text: #eef5fc;
+      --sub: #96abc2;
+      --muted: #6e839b;
       --accent: #38bdf8;
-      --warn-bg: rgba(210, 153, 34, 0.1);
-      --warn-border: rgba(210, 153, 34, 0.4);
-      --warn-text: #e3b341;
+      --accent-btn-start: #0369a1;
+      --accent-btn-end: #075985;
+      --green: #34d399;
+      --warn-bg: rgba(234, 179, 8, 0.08);
+      --warn-border: rgba(234, 179, 8, 0.3);
+      --warn-text: #facc15;
     }
 
     * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
     body {
       margin: 0;
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-      background: var(--bg);
+      background:
+        radial-gradient(ellipse 85% 440px at 50% -110px, var(--bg-glow), transparent 72%),
+        radial-gradient(ellipse 50% 300px at 85% 22%, rgba(3, 105, 161, 0.12), transparent 70%),
+        var(--bg);
       color: var(--text);
       line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
     }
 
     a { color: var(--accent); text-decoration: none; }
     a:hover { text-decoration: underline; }
 
-    .container {
-      max-width: 920px;
-      margin: 0 auto;
-      padding: 40px 20px 64px;
+    /* Top Sticky Navbar */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      background: rgba(7, 12, 20, 0.78);
+      border-bottom: 1px solid var(--border);
     }
 
-    .hero {
-      text-align: center;
-      padding: 36px 24px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 20px;
+    .topbar-inner {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
     }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text);
+      font-weight: 700;
+      font-size: 15px;
+      letter-spacing: -0.01em;
+    }
+
+    .brand:hover { text-decoration: none; opacity: 0.92; }
+
+    .brand img {
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
+      border: 1px solid rgba(56, 189, 248, 0.35);
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      font-size: 13.5px;
+    }
+
+    .nav-links a {
+      color: var(--sub);
+      font-weight: 500;
+    }
+
+    .nav-links a:hover {
+      color: var(--text);
+      text-decoration: none;
+    }
+
+    .nav-pill {
+      padding: 5px 12px;
+      border-radius: 999px;
+      background: rgba(56, 189, 248, 0.14);
+      border: 1px solid var(--border-strong);
+      color: var(--accent) !important;
+      font-weight: 600 !important;
+      font-size: 12.5px;
+    }
+
+    .container {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 32px 20px 72px;
+    }
+
+    /* Hero */
+    .hero {
+      position: relative;
+      overflow: hidden;
+      text-align: center;
+      padding: 44px 24px 36px;
+      background: linear-gradient(180deg, rgba(20, 32, 51, 0.94), rgba(15, 23, 36, 0.98));
+      border: 1px solid var(--border);
+      border-radius: 26px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.42);
+    }
+
+    .hero::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 50% 0%, rgba(56, 189, 248, 0.14), transparent 58%);
+      pointer-events: none;
+    }
+
+    .hero > * { position: relative; z-index: 1; }
 
     .app-icon {
-      width: 96px;
-      height: 96px;
+      width: 88px;
+      height: 88px;
       border-radius: 22px;
       margin-bottom: 16px;
+      border: 1px solid rgba(56, 189, 248, 0.38);
+      box-shadow: 0 12px 32px rgba(3, 105, 161, 0.35);
+    }
+
+    .badge-row {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 11px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      background: rgba(148, 197, 255, 0.08);
       border: 1px solid var(--border);
+      color: var(--sub);
+    }
+
+    .pill-accent {
+      background: rgba(56, 189, 248, 0.14);
+      border-color: var(--border-strong);
+      color: #7dd3fc;
+    }
+
+    .pill-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: var(--green);
+      box-shadow: 0 0 8px rgba(52, 211, 153, 0.7);
     }
 
     h1 {
-      margin: 0 0 8px;
-      font-size: clamp(26px, 4vw, 36px);
+      margin: 0 0 6px;
+      font-size: clamp(23px, 5.2vw, 36px);
+      line-height: 1.25;
+      letter-spacing: -0.02em;
+      text-wrap: balance;
     }
 
     .en-name {
       margin: 0 0 14px;
-      color: var(--sub);
-      font-size: 15px;
+      color: var(--muted);
+      font-size: 13.5px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      font-weight: 600;
     }
 
     .subtitle {
-      max-width: 640px;
-      margin: 0 auto 24px;
+      max-width: 610px;
+      margin: 0 auto 26px;
       color: var(--sub);
-      font-size: 15px;
+      font-size: 15.5px;
     }
+
+    .subtitle strong { color: var(--text); }
 
     .cta-row {
       display: flex;
       flex-wrap: wrap;
       justify-content: center;
       gap: 12px;
+      margin-bottom: 28px;
     }
 
     .btn {
-      display: inline-block;
-      padding: 10px 20px;
-      border-radius: 10px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px 24px;
+      border-radius: 13px;
       font-weight: 600;
-      font-size: 14px;
+      font-size: 14.5px;
       border: 1px solid var(--border);
+      transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    }
+
+    .btn:hover {
+      text-decoration: none;
+      transform: translateY(-1px);
     }
 
     .btn-primary {
-      background: #1f6feb;
-      color: #fff;
-      border-color: transparent;
+      background: linear-gradient(135deg, var(--accent-btn-start), var(--accent-btn-end));
+      color: #ffffff;
+      border-color: rgba(125, 211, 252, 0.35);
+      box-shadow: 0 10px 26px rgba(3, 105, 161, 0.42);
+    }
+
+    .btn-primary:hover {
+      box-shadow: 0 12px 30px rgba(3, 105, 161, 0.56);
     }
 
     .btn-secondary {
-      background: #21262d;
+      background: var(--surface-2);
       color: var(--text);
     }
 
-    section { margin-top: 36px; }
-    h2 { font-size: 20px; margin: 0 0 14px; }
-
-    .card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 20px 24px;
+    .btn-secondary:hover {
+      background: var(--surface-hover);
     }
 
-    ul.features {
-      margin: 0;
-      padding-left: 20px;
+    .hero-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      max-width: 720px;
+      margin: 0 auto;
+      padding-top: 22px;
+      border-top: 1px solid var(--border);
+    }
+
+    .metric-box {
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: rgba(7, 12, 20, 0.45);
+      border: 1px solid rgba(148, 197, 255, 0.1);
+    }
+
+    .metric-val {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.01em;
+    }
+
+    .metric-label {
+      margin-top: 2px;
+      font-size: 12px;
       color: var(--sub);
     }
 
-    ul.features li { margin-bottom: 8px; }
-    ul.features strong { color: var(--text); }
+    /* Sections */
+    section.block { margin-top: 44px; }
 
-    .screenshots {
+    .section-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    h2 {
+      font-size: 21px;
+      margin: 0;
+      letter-spacing: -0.01em;
+    }
+
+    .section-sub {
+      font-size: 13.5px;
+      color: var(--sub);
+      margin: 0;
+    }
+
+    /* Screenshots Showcase */
+    .showcase-featured {
+      background: linear-gradient(180deg, rgba(20, 32, 51, 0.85), rgba(15, 23, 36, 0.96));
+      border: 1px solid var(--border-strong);
+      border-radius: 22px;
+      padding: 18px;
+      margin-bottom: 18px;
+      box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
+    }
+
+    .showcase-featured img {
+      display: block;
+      width: 100%;
+      border-radius: 14px;
+      border: 1px solid rgba(148, 197, 255, 0.2);
+      cursor: zoom-in;
+      transition: transform 0.2s ease;
+    }
+
+    .showcase-featured img:hover { transform: scale(1.006); }
+
+    .shot-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+      padding: 0 4px;
+    }
+
+    .shot-title {
+      font-size: 14.5px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .shot-caption {
+      font-size: 13px;
+      color: var(--sub);
+      margin-top: 4px;
+    }
+
+    .screenshots-pair {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 20px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
     }
 
     .shot-card {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 16px;
+      border-radius: 20px;
+      padding: 18px;
       text-align: center;
     }
 
     .shot-card img {
       width: 100%;
-      max-width: 300px;
-      border-radius: 16px;
-      border: 1px solid var(--border);
+      max-width: 290px;
+      border-radius: 18px;
+      border: 1px solid rgba(148, 197, 255, 0.18);
+      box-shadow: 0 14px 34px rgba(0, 0, 0, 0.32);
+      cursor: zoom-in;
+      transition: transform 0.2s ease;
     }
 
-    .shot-caption {
-      margin-top: 10px;
+    .shot-card img:hover { transform: translateY(-2px); }
+
+    .shot-card .shot-title { margin-top: 14px; }
+
+    /* Steps Grid */
+    .steps-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .step-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 18px;
+    }
+
+    .step-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      background: rgba(56, 189, 248, 0.16);
+      border: 1px solid var(--border-strong);
+      color: #7dd3fc;
+      font-weight: 700;
+      font-size: 13px;
+      margin-bottom: 12px;
+    }
+
+    .step-item h3 {
+      margin: 0 0 6px;
+      font-size: 15px;
+    }
+
+    .step-item p {
+      margin: 0;
       font-size: 13px;
       color: var(--sub);
     }
 
+    /* Feature Cards */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .feature-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 20px;
+    }
+
+    .feature-card h3 {
+      margin: 0 0 6px;
+      font-size: 15.5px;
+      color: var(--text);
+    }
+
+    .feature-card p {
+      margin: 0;
+      font-size: 13.5px;
+      color: var(--sub);
+    }
+
+    /* Release Highlights Card */
+    .release-card {
+      background: linear-gradient(135deg, rgba(20, 32, 51, 0.92), rgba(15, 23, 36, 0.98));
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 22px 24px;
+    }
+
+    .release-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .release-list {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--sub);
+      font-size: 14px;
+    }
+
+    .release-list li { margin-bottom: 7px; }
+    .release-list strong { color: var(--text); }
+
+    /* Disclaimer */
     .disclaimer {
       background: var(--warn-bg);
       border: 1px solid var(--warn-border);
-      border-radius: 16px;
-      padding: 18px 22px;
+      border-radius: 18px;
+      padding: 20px 22px;
       color: var(--warn-text);
-      font-size: 14px;
+      font-size: 13.5px;
     }
 
     .disclaimer h2 { margin: 0 0 10px; font-size: 17px; }
@@ -163,8 +494,8 @@
     .disclaimer li { margin-bottom: 6px; }
 
     footer {
-      margin-top: 40px;
-      padding-top: 20px;
+      margin-top: 44px;
+      padding-top: 22px;
       border-top: 1px solid var(--border);
       display: flex;
       flex-wrap: wrap;
@@ -173,66 +504,254 @@
       font-size: 13px;
       color: var(--sub);
     }
+
+    /* Image Lightbox */
+    .lightbox {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(4, 8, 14, 0.88);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      cursor: zoom-out;
+    }
+
+    .lightbox.open { display: flex; }
+
+    .lightbox img {
+      max-width: min(94vw, 1080px);
+      max-height: 90vh;
+      border-radius: 16px;
+      border: 1px solid var(--border-strong);
+      box-shadow: 0 24px 70px rgba(0, 0, 0, 0.65);
+    }
+
+    @media (max-width: 780px) {
+      .steps-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .features-grid { grid-template-columns: 1fr; }
+      .screenshots-pair { grid-template-columns: 1fr; }
+      .nav-links .hide-sm { display: none; }
+    }
+
+    @media (max-width: 520px) {
+      .container { padding: 20px 14px 56px; }
+      .hero { padding: 30px 16px 26px; border-radius: 22px; }
+      .hero-metrics { grid-template-columns: 1fr; }
+      .steps-grid { grid-template-columns: 1fr; }
+      .cta-row .btn { width: 100%; }
+    }
   </style>
 </head>
 <body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#">
+        <img src="assets/app-icon.png" alt="" />
+        <span>方舟补丁工具</span>
+      </a>
+      <nav class="nav-links" aria-label="页面导航">
+        <a class="hide-sm" href="#preview">实机预览</a>
+        <a class="hide-sm" href="#guide">使用流程</a>
+        <a class="hide-sm" href="#features">核心特性</a>
+        <a class="nav-pill" href="https://github.com/MiohalationM/BiliArknights-IPA-Patcher/releases/latest">下载 v1.1.0</a>
+      </nav>
+    </div>
+  </header>
+
   <main class="container">
     <section class="hero">
       <img class="app-icon" src="assets/app-icon.png" alt="明日方舟 B 服 iOS 补丁工具图标" />
+      <div class="badge-row">
+        <span class="pill pill-accent"><span class="pill-dot"></span>v1.1.0 · Build 15</span>
+        <span class="pill">iOS / iPadOS 16.0+</span>
+        <span class="pill">内置 2.7.91 (Build 76)</span>
+        <span class="pill">全程离线打包</span>
+      </div>
       <h1>明日方舟 B 服 iOS 补丁工具</h1>
       <p class="en-name">BiliArknights IPA Patcher</p>
       <p class="subtitle">
-        在 iPhone / iPad 上本地给已解密的《明日方舟》官服 IPA 打上 B 服（哔哩哔哩）登录补丁，生成待签名 IPA。
+        在 iPhone / iPad 上直接给《明日方舟》官服<strong>砸壳 IPA</strong> 打上 B 服（哔哩哔哩）登录补丁，无需电脑、全程离线、十几秒生成待签名安装包。
       </p>
       <div class="cta-row">
-        <a class="btn btn-primary" href="https://github.com/MiohalationM/BiliArknights-IPA-Patcher/releases">下载 IPA (Releases)</a>
+        <a class="btn btn-primary" href="https://github.com/MiohalationM/BiliArknights-IPA-Patcher/releases/latest">下载 v1.1.0 未签名 IPA</a>
         <a class="btn btn-secondary" href="https://github.com/MiohalationM/BiliArknights-IPA-Patcher">GitHub 源码</a>
         <a class="btn btn-secondary" href="https://github.com/lazhire/Arknights-Bilibili-for-IOS">参考项目</a>
       </div>
+
+      <div class="hero-metrics">
+        <div class="metric-box">
+          <div class="metric-val">iOS 16.0+</div>
+          <div class="metric-label">支持 iPhone &amp; iPad · 兼容巨魔与自签</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-val">约 16.3 秒</div>
+          <div class="metric-label">2.79 GB 砸壳包「打包 + 复核」实测</div>
+        </div>
+        <div class="metric-box">
+          <div class="metric-val">100% 离线</div>
+          <div class="metric-label">工具不联网 · 绝不改动原 IPA</div>
+        </div>
+      </div>
     </section>
 
-    <section>
-      <h2>功能说明</h2>
-      <div class="card">
-        <ul class="features">
-          <li><strong>本地离线处理</strong>：全程不联网，也不会改动原始 IPA 文件。</li>
-          <li><strong>速度较快</strong>：只重打包改动过的文件，2.8 GB 左右的 IPA 在 iPhone 上大概十几秒完成。</li>
-          <li><strong>版本适配</strong>：内置 2.7.91 已验证配置；后续游戏更新可在 App 内导入手工 JSON 配置，也支持自动解析新版本 IL2CPP 偏移。</li>
-          <li><strong>可选 B 服图标</strong>：支持换成带「B」角标的桌面图标，方便和官服区分，也可以保留原版图标。</li>
+    <section id="preview" class="block">
+      <div class="section-head">
+        <h2>实机效果预览</h2>
+        <p class="section-sub">点击图片可查看大图</p>
+      </div>
+
+      <div class="showcase-featured">
+        <img src="assets/screenshot-ingame.jpg" alt="游戏启动页右上角暗色 B 服切换按钮与下拉菜单" data-zoom />
+        <div class="shot-meta">
+          <div>
+            <div class="shot-title">游戏启动页切服菜单（v1.1.0 新增暗色工业风自绘面板）</div>
+            <div class="shot-caption">按钮固定在右上角并避让 12+ 适龄提示，支持启动阶段自动生效；弹出登录窗或进入主界面后自动收起隐藏。</div>
+          </div>
+          <span class="pill pill-accent">Bridge 底座 r5</span>
+        </div>
+      </div>
+
+      <div class="screenshots-pair">
+        <div class="shot-card">
+          <img src="assets/screenshot-home.jpg" alt="App 首页与打包设置" data-zoom />
+          <div class="shot-title">首页与打包设置</div>
+          <div class="shot-caption">一键选择砸壳 IPA，可视化切换带「B」角标桌面图标与新版自动适配</div>
+        </div>
+        <div class="shot-card">
+          <img src="assets/screenshot-export.jpg" alt="打包完成与导出" data-zoom />
+          <div class="shot-title">打包完成与一键导出</div>
+          <div class="shot-caption">2.79 GB 砸壳包真机实测「打包 + 完整性复核」总耗时 16.3 秒</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="guide" class="block">
+      <div class="section-head">
+        <h2>四步快速上手</h2>
+        <p class="section-sub">全流程在手机上即可完成</p>
+      </div>
+      <div class="steps-grid">
+        <div class="step-item">
+          <span class="step-num">1</span>
+          <h3>安装补丁工具</h3>
+          <p>前往 Releases 下载最新未签名 IPA，使用巨魔商店（TrollStore）或常用自签工具安装到设备。</p>
+        </div>
+        <div class="step-item">
+          <span class="step-num">2</span>
+          <h3>选择官服砸壳 IPA</h3>
+          <p>准备好已砸壳的《明日方舟》官服 IPA，在首页点击「选择砸壳 IPA」并等待十几秒。</p>
+        </div>
+        <div class="step-item">
+          <span class="step-num">3</span>
+          <h3>导出并安装游戏</h3>
+          <p>打包完成后导出生成的 B 服 IPA 到「文件」，同样使用巨魔商店或自签工具安装。</p>
+        </div>
+        <div class="step-item">
+          <span class="step-num">4</span>
+          <h3>游戏启动页切 B 服</h3>
+          <p>打开游戏，在启动界面点击右上角悬浮按钮切换到「B服」，即可使用 B 站账号登录。</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="features" class="block">
+      <div class="section-head">
+        <h2>核心特性</h2>
+        <p class="section-sub">兼顾开箱易用与工程级安全校验</p>
+      </div>
+      <div class="features-grid">
+        <div class="feature-card">
+          <h3>广泛系统兼容</h3>
+          <p>最低支持 iOS / iPadOS 16.0，原生适配 iPhone 与 iPad 横竖屏，兼容 TrollStore、AltStore、SideStore 与 Sideloadly。</p>
+        </div>
+        <div class="feature-card">
+          <h3>流式高速打包与全包校验</h3>
+          <p>原生 ZIP64 流式引擎仅重写改动条目，打包前校验 ARM64 偏移对齐与段界，完成后执行全包 CRC32 复核并原子提交。</p>
+        </div>
+        <div class="feature-card">
+          <h3>版本更新可持续适配</h3>
+          <p>内置 2.7.91 (Build 76) 已验证底座；后续版本在通过字节级兼容性校验后可自动适配，也可导入新版 JSON 配置文件，无需重装 App。</p>
+        </div>
+        <div class="feature-card">
+          <h3>本机离线与隐私边界清晰</h3>
+          <p>补丁工具本身全程离线、不上传文件且绝不改动原 IPA；仅修补后生成的游戏客户端在登录时正常连接官方 / B 站服务器。</p>
+        </div>
+        <div class="feature-card">
+          <h3>可选 B 服专属图标</h3>
+          <p>打包前可自由切换带「B」角标的桌面图标方便与官服区分，或保留游戏原版图标。</p>
+        </div>
+        <div class="feature-card">
+          <h3>内购入口安全拦截</h3>
+          <p>修补后的客户端内已统一拦截应用内充值购买请求，防止误触或走错渠道引发异常。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="block">
+      <div class="release-card">
+        <div class="release-top">
+          <h2>v1.1.0 (Build 15) 更新亮点</h2>
+          <a href="https://github.com/MiohalationM/BiliArknights-IPA-Patcher/releases/latest">查看完整发布说明 →</a>
+        </div>
+        <ul class="release-list">
+          <li><strong>兼容 iOS / iPadOS 16.0+</strong>：大幅下探最低系统版本并补齐 iPad 适配。</li>
+          <li><strong>游戏内暗色切服菜单（底座 r5）</strong>：按钮移至右上角避让适龄提示，启动页自动生效、进服后自动隐藏，与游戏画风融为一体。</li>
+          <li><strong>全新界面与新手引导</strong>：优化玩家文案为「砸壳 IPA」，新增 4 步指南、可视化图标二选一与高对比度按钮。</li>
+          <li><strong>校验与存储加固</strong>：新增手工/自动偏移段界与对齐预检、无碰撞原子化配置存储、Inbox 缓存管理及多处边界竞态修复。</li>
         </ul>
       </div>
     </section>
 
-    <section>
-      <h2>界面截图</h2>
-      <div class="screenshots">
-        <div class="shot-card">
-          <img src="assets/screenshot-home.png" alt="首页与选项" />
-          <div class="shot-caption">首页：选择已解密 IPA、图标选项与自动适配开关</div>
-        </div>
-        <div class="shot-card">
-          <img src="assets/screenshot-export.jpg" alt="打包完成与导出" />
-          <div class="shot-caption">导出页：2.79 GB IPA 真机实测耗时 15.8 秒</div>
-        </div>
-      </div>
-    </section>
-
-    <section>
+    <section class="block">
       <div class="disclaimer">
-        <h2>免责声明</h2>
+        <h2>免责声明与开源边界</h2>
         <ul>
-          <li>本项目仅用于技术学习与研究，不提供任何游戏本体或已解密 IPA 文件。</li>
+          <li>本项目仅用于技术学习与研究，不提供任何游戏本体或砸壳 IPA 文件。</li>
           <li>使用修改或重签名客户端可能违反游戏服务条款，相关账号风险与后果请自行承担。</li>
-          <li>严禁将本项目或生成产物用于任何商业售卖、付费代打包或违法用途。</li>
-          <li>本项目源码基于 MIT 协议开源；涉及的第三方游戏名称、图标等权利归各自权利人所有。</li>
+          <li>本仓库自研源码基于 MIT 协议开源；第三方游戏本体、闭源 SDK 载体及相关美术资源权利归各自权利人所有，本项目不提供也不授权任何第三方内容的再分发、售卖或付费代打包。</li>
         </ul>
       </div>
     </section>
 
     <footer>
-      <span>BiliArknights IPA Patcher · MIT License</span>
-      <span>参考项目：<a href="https://github.com/lazhire/Arknights-Bilibili-for-IOS">lazhire/Arknights-Bilibili-for-IOS</a></span>
+      <span>BiliArknights IPA Patcher · v1.1.0 · MIT License</span>
+      <span>
+        <a href="https://github.com/MiohalationM/BiliArknights-IPA-Patcher/blob/main/docs/PROFILE_FORMAT.md">手工配置规范</a> ·
+        参考项目：<a href="https://github.com/lazhire/Arknights-Bilibili-for-IOS">lazhire/Arknights-Bilibili-for-IOS</a>
+      </span>
     </footer>
   </main>
+
+  <div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="图片放大预览">
+    <img id="lightbox-img" src="" alt="" />
+  </div>
+
+  <script>
+    (function () {
+      const box = document.getElementById("lightbox");
+      const boxImg = document.getElementById("lightbox-img");
+      document.querySelectorAll("img[data-zoom]").forEach(function (img) {
+        img.addEventListener("click", function () {
+          boxImg.src = img.src;
+          boxImg.alt = img.alt;
+          box.classList.add("open");
+        });
+      });
+      box.addEventListener("click", function () {
+        box.classList.remove("open");
+        boxImg.src = "";
+      });
+      document.addEventListener("keydown", function (e) {
+        if (e.key === "Escape") {
+          box.classList.remove("open");
+          boxImg.src = "";
+        }
+      });
+    })();
+  </script>
 </body>
 </html>

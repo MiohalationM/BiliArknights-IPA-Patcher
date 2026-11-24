@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "revision": "7.5-2.7.91-bridge-carrier-r4",
+  "revision": "7.5-2.7.91-bridge-carrier-r5",
   "bundle_id": "com.hypergryph.arknights",
   "version": "2.7.91",
   "build": "76",
@@ -37,7 +37,7 @@
     "target_binary": "Payload/Arknights.app/Frameworks/UnityFramework.framework/UnityFramework",
     "dylib_load_path": "@executable_path/Frameworks/ABLoginBridge.dylib"
   },
-  "payload_sha256": "23de0c89524c340b43813d26f8b98b013c0f0aa92733aacf50aac35855155a98",
+  "payload_sha256": "0d09c4b692bd703ce2b0c1c44e769fe4cccdb9883509d2bf433ea564cb352129",
   "payload_entries": {
     "Payload/Arknights.app/ABAppIcon29x29@2x.png": "46debfe7231f9b2615912b68587e368226451eb077f1da6acd2b4157a6d674de",
     "Payload/Arknights.app/ABAppIcon29x29@3x.png": "bf6060db6c5a893d67287a437d8c363cb6464e10ff6e140db865cf0b9b62cdec",
@@ -48,10 +48,10 @@
     "Payload/Arknights.app/ABAppIcon76x76@2x~ipad.png": "17b2b5b9c455f26595230d4b539a4cb917232a33c9b3c5e9c1ba6527d75aa58a",
     "Payload/Arknights.app/ABAppIcon76x76~ipad.png": "2c88166576c02e5739b4e318af09ff5312b58cbda635682106d05696c7323470",
     "Payload/Arknights.app/ABAppIcon83.5x83.5@2x~ipad.png": "e804f174fd2c71a0d96d8fe579f8f542671a53658328a267d9e05340821e88b5",
-    "Payload/Arknights.app/ABBuildInfo.json": "c1f4fcf95ca1b22e77f922c61868fc679ae676679ebca83a55ad962ebf9420a3",
+    "Payload/Arknights.app/ABBuildInfo.json": "69b215042a33f57fd91ef163c2305ee2ad568bb461c343764df95c7ff17b40c5",
     "Payload/Arknights.app/ABChannelProfiles.plist": "5bf9a6416f9e22dd64bd4651dc8844ba7aa29089c3a1dd1d7754a482b31476d0",
     "Payload/Arknights.app/ABGameConfig.plist": "664da8eb1228accb9e0a371ceaffc518d82d9500a2fb92fcbc57454443317d82",
-    "Payload/Arknights.app/ABRuntimeProfile.plist": "ccd606258c2caea1e77897b8d609047855c4d53ed029b3a2ecb8c83fd0620096",
+    "Payload/Arknights.app/ABRuntimeProfile.plist": "14cf465ff5adbf92251f2e8c3d02c94ad8d9c69bfb5c6c8034521696fcbd378d",
     "Payload/Arknights.app/BLGameSdkModel.momd/BLGameSdkModel.mom": "590420d3b64aca2e32d4a0f0e5e61cc2b107c7478895f67cc6c1db7c2c373154",
     "Payload/Arknights.app/BLGameSdkModel.momd/VersionInfo.plist": "0ffb2de88ea5adf6d5e98a31953fdfbe3fcdee79f81f6841e4b52ed06ec53d86",
     "Payload/Arknights.app/BLImages.bundle/bg.png": "be0737c562044b06a7aa65ec779b2f8b9aaf3f40937f7d31bdb2a16e2c1b3707",
@@ -63,7 +63,7 @@
     "Payload/Arknights.app/BLImages.bundle/button_click.png": "062caddbe42ba163b1fadfda2aa1df7ed1043f2f1170fe2bb1e37f7d8417ce1b",
     "Payload/Arknights.app/BLImages.bundle/button_click@2x.png": "81ee42b15b310204433737f56d2944725fa3571e53f0206c101410a1b8e48b8b",
     "Payload/Arknights.app/BLImages.bundle/button_click@3x.png": "54d624c2dc814602e3ca85b01fc1f07ea7f6ea6b0a956e62a3bf5e4ce405d4fc",
-    "Payload/Arknights.app/Frameworks/ABLoginBridge.dylib": "25bad5e3dedefa52e9d800eef8fcbd3e1886f7d686b98545d4c349a00c61d9b1",
+    "Payload/Arknights.app/Frameworks/ABLoginBridge.dylib": "3013eb5ca5cdee2baa8a3bcae6cc952eb119c19e37139abf8234e8107b276e84",
     "Payload/Arknights.app/Frameworks/ABSDKCarrier.dylib": "4554b375ff6edafbe227ed09a5c7c0ebf8751fc1536b28341c4ba760f86b85c6",
     "Payload/Arknights.app/GSCSDKResources.bundle/Localizable.strings": "6651422807d149e1d1b02a0ce23651de0841ad0262ac00062c0f29212579b2b3",
     "Payload/Arknights.app/GSCSDKResources.bundle/gsc_back@1x.png": "85fe2bbeda8f2c93da3b08919f2c3616d66d4fc01021ab3369453b56bdf6e8d4",

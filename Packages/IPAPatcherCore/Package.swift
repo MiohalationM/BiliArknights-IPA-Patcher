@@ -4,8 +4,8 @@ import PackageDescription
 let package = Package(
     name: "IPAPatcherCore",
     platforms: [
-        .iOS("27.0"),
-        .macOS(.v15)
+        .iOS(.v16),
+        .macOS(.v14)
     ],
     products: [
         .library(

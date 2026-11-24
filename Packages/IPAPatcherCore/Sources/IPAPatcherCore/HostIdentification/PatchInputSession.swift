@@ -70,6 +70,32 @@ public final class PatchInputSession: @unchecked Sendable {
         return data
     }
 
+    /// Moves the cached `UnityFramework` buffer out of the session (leaving cache empty) so the caller obtains
+    /// unique ownership and can mutate it in place without triggering a ~200 MB copy-on-write duplication.
+    public func takeUnityFrameworkData(at path: String) throws -> Data {
+        lock.lock()
+        let hit: Data?
+        if cachedUnityPath == path {
+            hit = cachedUnityData
+            cachedUnityPath = nil
+            cachedUnityData = nil
+        } else {
+            hit = nil
+        }
+        lock.unlock()
+
+        if let hit {
+            return hit
+        }
+        do {
+            return try reader.readData(named: path)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let zipErr as ZipError {
+            throw PatchError.zipFailure(zipErr)
+        }
+    }
+
     /// Releases the large in-memory `UnityFramework` buffer once binary injection is complete,
     /// keeping peak memory low during streaming ZIP repackaging.
     public func releaseUnityCache() {

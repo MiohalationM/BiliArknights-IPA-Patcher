@@ -73,16 +73,24 @@ static uint64_t ReadU64(NSDictionary *dict, NSString *key, uint64_t fallback) {
     return fallback;
 }
 
+static BOOL ReadRequiredU64(NSDictionary *dict, NSString *key, uint64_t *outVal) {
+    uint64_t parsed = ReadU64(dict, key, 0);
+    if (parsed == 0) return NO;
+    *outVal = parsed;
+    return YES;
+}
+
 static void EnsureProfileLoaded(void) {
     if (runtimeProfile.loaded) return;
 
-    // Built-in verified defaults for Arknights 2.7.91 / build 76.
+    // Built-in verified defaults for Arknights 2.7.91 / build 76 (used only when no ABRuntimeProfile.plist is bundled).
     static const uint8_t kDefaultUUID[16] = {
         0x38, 0x6e, 0x1e, 0x29, 0xf5, 0x38, 0x38, 0xc5,
         0x84, 0xd3, 0x40, 0x42, 0x7d, 0x3e, 0x6e, 0xb1
     };
     memcpy(runtimeProfile.unityUUID, kDefaultUUID, 16);
     runtimeProfile.hasUnityUUID = YES;
+    runtimeProfile.valid = YES;
     runtimeProfile.unityTextSize = 0x99f7a28ULL;
     strlcpy(runtimeProfile.unityTextSHA256,
             "ef43071f7010d6c429f34bd4b9dd3e347941db43dfd3b47913e146fe98f67443",
@@ -105,47 +113,51 @@ static void EnsureProfileLoaded(void) {
     runtimeProfile.getCurrentSceneFn = 0x18178d4ULL;
 
     NSString *plistPath = [NSBundle.mainBundle pathForResource:@"ABRuntimeProfile" ofType:@"plist"];
-    NSDictionary *plist = plistPath ? [NSDictionary dictionaryWithContentsOfFile:plistPath] : nil;
-    if ([plist isKindOfClass:NSDictionary.class]) {
-        if ([plist[@"version"] isKindOfClass:NSString.class] && [plist[@"version"] length] > 0) {
-            expectedVersion = [plist[@"version"] copy];
-        }
-        if (plist[@"build"]) {
-            expectedBuild = [[plist[@"build"] description] copy];
-        }
+    if (plistPath) {
+        // When an explicit ABRuntimeProfile.plist is bundled, NEVER silently fall back to 2.7.91 offsets.
+        // Every required field must parse strictly and be non-zero, otherwise refuse hook installation.
+        NSDictionary *plist = [NSDictionary dictionaryWithContentsOfFile:plistPath];
+        NSDictionary *offsets = [plist isKindOfClass:NSDictionary.class] && [plist[@"il2cppOffsets"] isKindOfClass:NSDictionary.class]
+            ? plist[@"il2cppOffsets"] : nil;
         uint8_t parsedUUID[16];
-        if (ParseUUIDBytes(plist[@"unityUUID"], parsedUUID)) {
+        BOOL ok = [plist isKindOfClass:NSDictionary.class]
+            && offsets != nil
+            && [plist[@"version"] isKindOfClass:NSString.class] && [plist[@"version"] length] > 0
+            && plist[@"build"] != nil
+            && ParseUUIDBytes(plist[@"unityUUID"], parsedUUID);
+
+        if (ok) {
+            expectedVersion = [plist[@"version"] copy];
+            expectedBuild = [[plist[@"build"] description] copy];
             memcpy(runtimeProfile.unityUUID, parsedUUID, 16);
             runtimeProfile.hasUnityUUID = YES;
-        }
-        // Never inherit 2.7.91 __text digest defaults when an explicit ABRuntimeProfile.plist is present.
-        runtimeProfile.unityTextSize = ReadU64(plist, @"unityTextSize", 0);
-        runtimeProfile.unityTextSHA256[0] = '\0';
-        if ([plist[@"unityTextSHA256"] isKindOfClass:NSString.class]) {
-            strlcpy(runtimeProfile.unityTextSHA256,
-                    [(NSString *)plist[@"unityTextSHA256"] UTF8String],
-                    sizeof(runtimeProfile.unityTextSHA256));
-        }
 
-        NSDictionary *offsets = [plist[@"il2cppOffsets"] isKindOfClass:NSDictionary.class] ? plist[@"il2cppOffsets"] : nil;
-        if (offsets) {
-            runtimeProfile.sdkInterfaceClassSlot = ReadU64(offsets, @"sdkInterfaceClassSlot", runtimeProfile.sdkInterfaceClassSlot);
-            runtimeProfile.sdkExternalToolsClassSlot = ReadU64(offsets, @"sdkExternalToolsClassSlot", runtimeProfile.sdkExternalToolsClassSlot);
-            runtimeProfile.sdkMetaClassSlot = ReadU64(offsets, @"sdkMetaClassSlot", runtimeProfile.sdkMetaClassSlot);
-            runtimeProfile.networkerTypeSlot = ReadU64(offsets, @"networkerTypeSlot", runtimeProfile.networkerTypeSlot);
+            runtimeProfile.unityTextSize = ReadU64(plist, @"unityTextSize", 0);
+            runtimeProfile.unityTextSHA256[0] = '\0';
+            if ([plist[@"unityTextSHA256"] isKindOfClass:NSString.class]) {
+                strlcpy(runtimeProfile.unityTextSHA256,
+                        [(NSString *)plist[@"unityTextSHA256"] UTF8String],
+                        sizeof(runtimeProfile.unityTextSHA256));
+            }
+
+            ok &= ReadRequiredU64(offsets, @"sdkInterfaceClassSlot", &runtimeProfile.sdkInterfaceClassSlot);
+            ok &= ReadRequiredU64(offsets, @"sdkExternalToolsClassSlot", &runtimeProfile.sdkExternalToolsClassSlot);
+            ok &= ReadRequiredU64(offsets, @"sdkMetaClassSlot", &runtimeProfile.sdkMetaClassSlot);
+            ok &= ReadRequiredU64(offsets, @"networkerTypeSlot", &runtimeProfile.networkerTypeSlot);
             // Optional secondary pointer check defaults to 0 (skip) instead of inheriting 2.7.91's address.
             runtimeProfile.networkerExpectedClass = ReadU64(offsets, @"networkerExpectedClass", 0);
-            runtimeProfile.gameFlowClassSlot = ReadU64(offsets, @"gameFlowClassSlot", runtimeProfile.gameFlowClassSlot);
+            ok &= ReadRequiredU64(offsets, @"gameFlowClassSlot", &runtimeProfile.gameFlowClassSlot);
 
-            runtimeProfile.getNetworkConfigFn = ReadU64(offsets, @"getNetworkConfigFn", runtimeProfile.getNetworkConfigFn);
-            runtimeProfile.overrideNetworkOptionsFn = ReadU64(offsets, @"overrideNetworkOptionsFn", runtimeProfile.overrideNetworkOptionsFn);
-            runtimeProfile.createStringFn = ReadU64(offsets, @"createStringFn", runtimeProfile.createStringFn);
-            runtimeProfile.internalSDKMetaFn = ReadU64(offsets, @"internalSDKMetaFn", runtimeProfile.internalSDKMetaFn);
-            runtimeProfile.sdkMetaCtorFn = ReadU64(offsets, @"sdkMetaCtorFn", runtimeProfile.sdkMetaCtorFn);
-            runtimeProfile.clearAuthStatusFn = ReadU64(offsets, @"clearAuthStatusFn", runtimeProfile.clearAuthStatusFn);
-            runtimeProfile.clearLoginStatusFn = ReadU64(offsets, @"clearLoginStatusFn", runtimeProfile.clearLoginStatusFn);
-            runtimeProfile.getCurrentSceneFn = ReadU64(offsets, @"getCurrentSceneFn", runtimeProfile.getCurrentSceneFn);
+            ok &= ReadRequiredU64(offsets, @"getNetworkConfigFn", &runtimeProfile.getNetworkConfigFn);
+            ok &= ReadRequiredU64(offsets, @"overrideNetworkOptionsFn", &runtimeProfile.overrideNetworkOptionsFn);
+            ok &= ReadRequiredU64(offsets, @"createStringFn", &runtimeProfile.createStringFn);
+            ok &= ReadRequiredU64(offsets, @"internalSDKMetaFn", &runtimeProfile.internalSDKMetaFn);
+            ok &= ReadRequiredU64(offsets, @"sdkMetaCtorFn", &runtimeProfile.sdkMetaCtorFn);
+            ok &= ReadRequiredU64(offsets, @"clearAuthStatusFn", &runtimeProfile.clearAuthStatusFn);
+            ok &= ReadRequiredU64(offsets, @"clearLoginStatusFn", &runtimeProfile.clearLoginStatusFn);
+            ok &= ReadRequiredU64(offsets, @"getCurrentSceneFn", &runtimeProfile.getCurrentSceneFn);
         }
+        runtimeProfile.valid = ok;
     }
 
     runtimeProfile.loaded = YES;
@@ -154,6 +166,11 @@ static void EnsureProfileLoaded(void) {
 const ABRuntimeOffsetProfile *ABActiveRuntimeProfile(void) {
     EnsureProfileLoaded();
     return &runtimeProfile;
+}
+
+BOOL ABRuntimeProfileIsValid(void) {
+    EnsureProfileLoaded();
+    return runtimeProfile.valid;
 }
 
 NSString *ABExpectedHostVersion(void) {
@@ -235,6 +252,21 @@ BOOL ABManagedChannelReady(void) {
 static ABNetworkConfig GetConfig(uintptr_t object) {
     const ABRuntimeOffsetProfile *p = ABActiveRuntimeProfile();
     return ((ABGetConfigFn)(ABBase + (uintptr_t)p->getNetworkConfigFn))((ABManagedObject *)object, NULL);
+}
+
+// Pure memory-read readiness probe (uses vm_read_overwrite only; invokes ZERO IL2CPP functions).
+BOOL ABChannelPreconditionsReady(void) {
+    if (!NSThread.isMainThread || !ABBase) return NO;
+    const ABRuntimeOffsetProfile *p = ABActiveRuntimeProfile();
+    if (!p->valid || !ABManagedChannelReady()) return NO;
+    if (!ExistingNetworker()) return NO;
+    Class<ABNativeU8> nativeClass = NSClassFromString(@"U8SDK");
+    id<ABNativeU8> native = [nativeClass respondsToSelector:@selector(sharedInstance)] ? [nativeClass sharedInstance] : nil;
+    if (![native respondsToSelector:@selector(sdkParams)] ||
+        ![[native sdkParams] isKindOfClass:NSDictionary.class]) {
+        return NO;
+    }
+    return YES;
 }
 
 static void Override(uintptr_t object, ABNetworkOverride *value) {

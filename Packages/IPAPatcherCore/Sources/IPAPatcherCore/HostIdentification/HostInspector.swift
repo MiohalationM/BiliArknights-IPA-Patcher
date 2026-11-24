@@ -31,7 +31,7 @@ public struct HostInspector: Sendable {
             PatchProgress(
                 stage: .inspectingHost,
                 fractionCompleted: 0.05,
-                detailMessage: "正在读取 IPA 目录并校验 ZIP 条目安全性…"
+                detailMessage: "正在读取安装包目录…"
             )
         )
 
@@ -149,7 +149,7 @@ public struct HostInspector: Sendable {
                     fractionCompleted: fraction,
                     completedEntries: index,
                     totalEntries: sortedPaths.count,
-                    detailMessage: "正在解析二进制（\(index + 1)/\(sortedPaths.count)）：\(binaryName)"
+                    detailMessage: "正在检查游戏程序文件（\(index + 1)/\(sortedPaths.count)）：\(binaryName)"
                 )
             )
 
@@ -197,7 +197,7 @@ public struct HostInspector: Sendable {
                 fractionCompleted: 1.0,
                 completedEntries: sortedPaths.count,
                 totalEntries: sortedPaths.count,
-                detailMessage: "宿主识别完成：\(displayName) \(version) (build \(build))"
+                detailMessage: "已识别游戏包：\(displayName) \(version) (Build \(build))"
             )
         )
 

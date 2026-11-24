@@ -110,8 +110,8 @@ public struct VerifiedPatchKit: Sendable, Hashable {
 }
 
 public enum BuiltInKitRepository {
-    public static let lockedManifestSHA256 = "215b0592da8b67996ea357a241985fd1b373959f434559da120c1bc921775ebd"
-    public static let activeRevision = "7.5-2.7.91-bridge-carrier-r4"
+    public static let lockedManifestSHA256 = "e195d85e2efd5eecf48a581e6108f9346f482fa8a6835baa740155ede5ff7c47"
+    public static let activeRevision = "7.5-2.7.91-bridge-carrier-r5"
     public static let activeVersion = "2.7.91"
     public static let activeBuild = "76"
 
@@ -133,7 +133,7 @@ public enum BuiltInKitRepository {
         }
 
         return TrustedPatchProfile(
-            identifier: "arknights-2.7.91-b76-bridge-carrier-r4",
+            identifier: "arknights-2.7.91-b76-bridge-carrier-r5",
             displayTitle: "明日方舟 2.7.91 (build 76) · 源码桥接 + 官方 B 站 SDK",
             expectedRevision: activeRevision,
             expectedVersion: activeVersion,

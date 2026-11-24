@@ -7,28 +7,19 @@ struct HeroActionCard: View {
     let isCheckingKit: Bool
     let onSelectIPA: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
+            // Brand header
             HStack(alignment: .center, spacing: 14) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [Color.accentColor.opacity(0.22), Color.accentColor.opacity(0.08)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 54, height: 54)
-                    Image(systemName: "wand.and.rays")
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundStyle(Color.accentColor)
-                }
+                RhodesEmblemIcon(size: 54)
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text("明日方舟 B 服补丁")
-                        .font(.title3.weight(.semibold))
-                    Text("本机离线修补 · 原 IPA 始终保持只读")
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(.primary)
+                    Text("全程本地离线处理 · 不会改动原游戏包")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -36,28 +27,28 @@ struct HeroActionCard: View {
                 Spacer(minLength: 0)
             }
 
-            // Compact inline readiness pill (non-cluttered)
+            // Readiness status pill
             HStack(spacing: 8) {
                 if isCheckingKit {
                     ProgressView()
                         .controlSize(.mini)
-                    Text("正在校验内置底座…")
+                    Text("正在准备内置补丁组件…")
                         .font(.caption.weight(.medium))
                         .foregroundStyle(.secondary)
                 } else if let kit = builtInKit {
-                    Image(systemName: "checkmark.seal.fill")
-                        .font(.caption)
-                        .foregroundStyle(.green)
-                    Text("底座已就绪 · 内置 \(kit.manifest.version) 基准（\(kit.payloadEntryCount) 项已核验）")
+                    Circle()
+                        .fill(Color.green)
+                        .frame(width: 7, height: 7)
+                    Text("补丁就绪 · 内置 \(kit.manifest.version)，新版通过兼容校验后可自动适配")
                         .font(.caption.weight(.medium))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.85)
+                        .minimumScaleFactor(0.82)
                 } else if let err = builtInKitError {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.caption)
                         .foregroundStyle(.orange)
-                    Text("底座异常：\(err)")
+                    Text("补丁组件异常：\(err)")
                         .font(.caption)
                         .foregroundStyle(.orange)
                         .lineLimit(2)
@@ -65,54 +56,58 @@ struct HeroActionCard: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.vertical, 9)
             .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color(.tertiarySystemFill))
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .fill(
+                        colorScheme == .dark
+                            ? Color.white.opacity(0.06)
+                            : AppTheme.brandCyan.opacity(0.07)
+                    )
             )
 
             // Primary CTA
             Button(action: onSelectIPA) {
-                Label("选择已解密 IPA", systemImage: "doc.badge.plus")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
+                HStack(spacing: 8) {
+                    Image(systemName: "doc.badge.plus")
+                        .font(.body.weight(.semibold))
+                    Text("选择砸壳 IPA")
+                }
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+            .buttonStyle(AppPrimaryButtonStyle())
             .disabled(builtInKitError != nil)
 
-            // Compact 3-step horizontal flow indicator
-            HStack(spacing: 6) {
-                stepChip(number: "1", title: "选包识别")
+            // 3-step beginner journey indicator
+            HStack(spacing: 4) {
+                stepChip(number: "1", title: "选砸壳包")
                 Image(systemName: "chevron.right")
-                    .font(.caption2.weight(.semibold))
+                    .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.quaternary)
-                stepChip(number: "2", title: "预检打包")
+                stepChip(number: "2", title: "打 B 服补丁")
                 Image(systemName: "chevron.right")
-                    .font(.caption2.weight(.semibold))
+                    .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.quaternary)
-                stepChip(number: "3", title: "复核导出")
+                stepChip(number: "3", title: "导出安装")
             }
             .frame(maxWidth: .infinity)
+            .padding(.top, 2)
         }
         .padding(20)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
-        )
+        .appCard(cornerRadius: 22)
     }
 
     private func stepChip(number: String, title: String) -> some View {
         HStack(spacing: 5) {
             Text(number)
-                .font(.caption2.monospacedDigit().weight(.bold))
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 17, height: 17)
-                .background(Circle().fill(Color.accentColor.opacity(0.14)))
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundStyle(AppTheme.brandCyan)
+                .frame(width: 18, height: 18)
+                .background(Circle().fill(AppTheme.brandCyan.opacity(0.14)))
             Text(title)
                 .font(.caption2.weight(.medium))
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
         }
         .frame(maxWidth: .infinity)
     }

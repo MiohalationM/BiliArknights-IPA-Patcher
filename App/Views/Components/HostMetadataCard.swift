@@ -5,43 +5,56 @@ struct HostMetadataCard: View {
     let profile: HostIPAProfile
     let isMatched: Bool?
 
-    @State private var showBinaries = false
+    @State private var showTechnicalDetails = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Label("识别到的宿主信息", systemImage: "app.badge.checkmark")
-                    .font(.headline)
+                HStack(spacing: 9) {
+                    IconBadge(systemName: "shippingbox.fill", color: AppTheme.brandCyan, size: 28)
+                    Text("游戏包信息")
+                        .font(.headline)
+                }
                 Spacer()
                 if let isMatched {
-                    statusPill(
-                        text: isMatched ? "已匹配" : "不兼容",
+                    StatusPill(
+                        text: isMatched ? "可正常适配" : "暂不兼容",
                         color: isMatched ? .green : .orange
                     )
                 }
             }
 
-            VStack(spacing: 8) {
-                infoRow("应用名称", value: profile.displayName)
-                infoRow("包名", value: profile.bundleID, monospaced: true)
-                infoRow("版本 / 构建号", value: "\(profile.version) (build \(profile.build))", monospaced: true)
-                infoRow("加密状态", value: profile.isEncrypted ? "检测到加密" : "已解密 (cryptid=0)", highlight: profile.isEncrypted ? .red : .green)
-                infoRow("大小 / 条目数", value: "\(formattedBytes(profile.sourceFileSize)) · \(profile.entryCount) 项")
+            VStack(spacing: 9) {
+                infoRow("游戏名称", value: profile.displayName)
+                infoRow("游戏版本", value: "\(profile.version) (Build \(profile.build))", monospaced: true)
+                infoRow(
+                    "砸壳状态",
+                    value: profile.isEncrypted ? "未砸壳（已加密）" : "已砸壳",
+                    highlight: profile.isEncrypted ? .red : .green
+                )
                 if let probe = profile.il2cppProbe {
                     infoRow(
-                        "补丁状态",
-                        value: probe.detectedInjectedBridge ? "已注入 ABLoginBridge" : "干净未注入",
+                        "安装包状态",
+                        value: probe.detectedInjectedBridge ? "已打过 B 服补丁" : "原版纯净包",
                         highlight: probe.detectedInjectedBridge ? .orange : .green
                     )
-                    infoRow(
-                        "IL2CPP 元数据",
-                        value: compactProbeSummary(probe)
-                    )
                 }
+                infoRow("文件大小", value: formattedBytes(profile.sourceFileSize))
             }
 
-            DisclosureGroup(isExpanded: $showBinaries) {
+            DisclosureGroup("查看技术信息与二进制列表", isExpanded: $showTechnicalDetails) {
                 VStack(alignment: .leading, spacing: 8) {
+                    infoRow("包名 (Bundle ID)", value: profile.bundleID, monospaced: true)
+                    infoRow("压缩包条目", value: "\(profile.entryCount) 项")
+                    if let probe = profile.il2cppProbe {
+                        infoRow("IL2CPP 元数据", value: compactProbeSummary(probe))
+                    }
+
+                    Text("可执行文件（\(profile.binaries.count) 个）")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
+
                     ForEach(profile.binaries) { binary in
                         VStack(alignment: .leading, spacing: 3) {
                             HStack {
@@ -52,7 +65,7 @@ struct HostMetadataCard: View {
                                     .font(.caption2.monospaced())
                                     .foregroundStyle(.secondary)
                                 if binary.isEncrypted {
-                                    Text("加密")
+                                    Text("未砸壳")
                                         .font(.caption2.weight(.semibold))
                                         .foregroundStyle(.red)
                                 }
@@ -67,32 +80,27 @@ struct HostMetadataCard: View {
                         .padding(8)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .fill(Color(.tertiarySystemFill))
+                            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                .fill(Color(.tertiarySystemFill).opacity(0.75))
                         )
                     }
                 }
-                .padding(.top, 6)
-            } label: {
-                Text("已识别的可执行文件（\(profile.binaries.count) 个）")
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(.secondary)
+                .padding(.top, 8)
             }
+            .font(.footnote.weight(.medium))
+            .foregroundStyle(.secondary)
         }
         .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
-        )
+        .appCard(cornerRadius: 20)
     }
 
     private func compactProbeSummary(_ probe: IL2CPPProbeSummary) -> String {
         if probe.hasGlobalMetadata && probe.globalMetadataIsPlaintext {
             let ver = probe.globalMetadataVersion.map { "v\($0)" } ?? "标准"
-            return "明文 \(ver) · 支持自动定位"
+            return "明文 \(ver) · 支持自动适配"
         }
         if probe.hasGlobalMetadata {
-            return "魔数 \(probe.globalMetadataMagicHex ?? "未知")（非标准明文）"
+            return "非常规格式（\(probe.globalMetadataMagicHex ?? "未知")）"
         }
         return "未检测到标准 IL2CPP 元数据"
     }
@@ -111,15 +119,6 @@ struct HostMetadataCard: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
         }
-    }
-
-    private func statusPill(text: String, color: Color) -> some View {
-        Text(text)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(color)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(Capsule().fill(color.opacity(0.14)))
     }
 
     private func formattedBytes(_ bytes: UInt64) -> String {

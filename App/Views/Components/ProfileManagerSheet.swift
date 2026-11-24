@@ -18,29 +18,38 @@ struct ProfileManagerSheet: View {
     let onImportProfile: () -> Void
     let onDeleteProfile: (RuntimeOffsetProfile) -> Void
     let onRunSelfCheck: () -> Void
+    let onCancelSelfCheck: () -> Void
+    let onExportResolvedProfile: (RuntimeOffsetProfile) -> Void
+    let onCopyResolvedProfile: (RuntimeOffsetProfile) -> Bool
     let onRecheckBuiltInKit: () -> Void
 
     @Environment(\.dismiss) private var dismiss
     @State private var showBuiltInDetails = false
     @State private var showSelfCheckOffsets = false
     @State private var copiedTemplateNotice = false
+    @State private var copiedSelfCheckProfile = false
+    @State private var profilePendingDelete: RuntimeOffsetProfile?
 
     var body: some View {
         NavigationStack {
             List {
-                // Section 1: Manual profile import
+                // Section 1: Manual profile import for future game updates
                 Section {
                     Button(action: onImportProfile) {
-                        Label("从「文件」导入手工配置（.json / .plist）", systemImage: "square.and.arrow.down")
+                        Label("从「文件」导入配置文件（.json / .plist）", systemImage: "square.and.arrow.down")
                             .font(.subheadline.weight(.medium))
                     }
 
                     Button {
                         UIPasteboard.general.string = RuntimeOffsetProfile.sampleJSONTemplate
                         copiedTemplateNotice = true
+                        Task {
+                            try? await Task.sleep(nanoseconds: 2_500_000_000)
+                            copiedTemplateNotice = false
+                        }
                     } label: {
                         Label(
-                            copiedTemplateNotice ? "已复制手工配置 JSON 模板" : "复制手工配置 JSON 模板",
+                            copiedTemplateNotice ? "已复制配置文件 JSON 模板" : "复制配置文件 JSON 模板",
                             systemImage: copiedTemplateNotice ? "checkmark.circle.fill" : "doc.on.doc"
                         )
                         .font(.subheadline)
@@ -57,15 +66,15 @@ struct ProfileManagerSheet: View {
                         }
                     }
                 } header: {
-                    Text("导入手工适配版（无需更新 App）")
+                    Text("导入新版本配置（无需重装工具）")
                 } footer: {
-                    Text("匹配优先级：① 已导入的手工配置 → ② 内置已验证基准（2.7.91）→ ③ 本机自动定位（IL2CPP）。未来有新版手工配置时直接导入即可生效。")
+                    Text("游戏大更新且自动适配未生效时，导入社区分享的新版本配置文件即可生效。匹配顺序：① 已导入配置 → ② 内置 2.7.91 → ③ 自动适配。")
                 }
 
                 // Section 2: Saved manual profiles
-                Section("已导入的手工配置（\(customProfiles.count)）") {
+                Section("已导入的配置文件（\(customProfiles.count)）") {
                     if customProfiles.isEmpty {
-                        Text("暂无已导入的手工配置")
+                        Text("暂无已导入的配置文件")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     } else {
@@ -74,7 +83,7 @@ struct ProfileManagerSheet: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(profile.name)
                                         .font(.subheadline.weight(.semibold))
-                                    Text("版本 \(profile.version) (build \(profile.build)) · \(profile.revision)")
+                                    Text("游戏版本 \(profile.version) (Build \(profile.build)) · \(profile.revision)")
                                         .font(.caption.monospaced())
                                         .foregroundStyle(.secondary)
                                     Text("Unity UUID: \(profile.unityUUID)")
@@ -85,7 +94,7 @@ struct ProfileManagerSheet: View {
                                 }
                                 Spacer(minLength: 4)
                                 Button(role: .destructive) {
-                                    onDeleteProfile(profile)
+                                    profilePendingDelete = profile
                                 } label: {
                                     Image(systemName: "trash")
                                         .font(.subheadline)
@@ -99,22 +108,25 @@ struct ProfileManagerSheet: View {
                     }
                 }
 
-                // Section 3: On-device IL2CPP Auto-Resolver self-check against 2.7.91 ground truth
+                // Section 3: Advanced developer self-check tool
                 Section {
-                    Button(action: onRunSelfCheck) {
-                        HStack {
-                            if isRunningSelfCheck {
-                                ProgressView()
-                                    .controlSize(.small)
-                                Text(selfCheckStatus ?? "正在解析并验算 14 项偏移…")
-                                    .font(.subheadline)
-                            } else {
-                                Label("用 2.7.91 IPA 实机验算自动定位", systemImage: "checkmark.shield")
-                                    .font(.subheadline.weight(.medium))
-                            }
+                    if isRunningSelfCheck {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text(selfCheckStatus ?? "正在验算 14 项关键偏移…")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button("取消", role: .destructive, action: onCancelSelfCheck)
+                                .font(.caption.weight(.semibold))
+                        }
+                    } else {
+                        Button(action: onRunSelfCheck) {
+                            Label("用 2.7.91 砸壳 IPA 实机验算自动适配", systemImage: "checkmark.shield")
+                                .font(.subheadline.weight(.medium))
                         }
                     }
-                    .disabled(isRunningSelfCheck)
 
                     if let selfCheckError {
                         HStack(alignment: .top, spacing: 8) {
@@ -138,11 +150,11 @@ struct ProfileManagerSheet: View {
                                     .font(.caption.monospacedDigit())
                                     .foregroundStyle(.secondary)
                             }
-                            Text("实测文件：\(result.fileName)（\(result.hostVersion) / build \(result.hostBuild)，IL2CPP v\(result.metadataVersion)）")
+                            Text("实测文件：\(result.fileName)（\(result.hostVersion) / Build \(result.hostBuild)，IL2CPP v\(result.metadataVersion)）")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             if result.isConfirmedCompatible {
-                                Text("ABI 字节级校验通过：\(result.abiChecksSummary)")
+                                Text("数据结构校验通过：\(result.abiChecksSummary)")
                                     .font(.caption2)
                                     .foregroundStyle(.green)
                             } else {
@@ -150,6 +162,36 @@ struct ProfileManagerSheet: View {
                                     Text("未确认兼容：\(reason)")
                                         .font(.caption2)
                                         .foregroundStyle(.orange)
+                                }
+                            }
+
+                            if let resolvedProfile = result.resolvedProfile {
+                                HStack(spacing: 8) {
+                                    Button {
+                                        onExportResolvedProfile(resolvedProfile)
+                                    } label: {
+                                        Label("导出 JSON", systemImage: "square.and.arrow.up")
+                                            .font(.caption.weight(.medium))
+                                    }
+                                    .buttonStyle(.bordered)
+
+                                    Button {
+                                        if onCopyResolvedProfile(resolvedProfile) {
+                                            copiedSelfCheckProfile = true
+                                            Task {
+                                                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                                                copiedSelfCheckProfile = false
+                                            }
+                                        }
+                                    } label: {
+                                        Label(
+                                            copiedSelfCheckProfile ? "已复制" : "复制 JSON",
+                                            systemImage: copiedSelfCheckProfile ? "checkmark.circle.fill" : "doc.on.doc"
+                                        )
+                                        .font(.caption.weight(.medium))
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .tint(copiedSelfCheckProfile ? .green : .accentColor)
                                 }
                             }
 
@@ -177,35 +219,35 @@ struct ProfileManagerSheet: View {
                         .padding(.vertical, 4)
                     }
                 } header: {
-                    Text("自动定位引擎实机校验")
+                    Text("高级自检（普通玩家无需操作）")
                 } footer: {
-                    Text("选择 2.7.91 原版已解密 IPA 后，自动定位器会在不读取内置偏移表的情况下独立解析全部 14 项偏移，并与已验证真值逐项比对。")
+                    Text("仅供验算测试：选择 2.7.91 原版砸壳 IPA 后，将独立分析 14 项关键偏移并与已验证基准逐项比对。")
                 }
 
-                // Section 4: Built-in base kit details (collapsed by default to stay ultra-clean)
-                Section("内置已验证基准") {
+                // Section 4: Built-in base kit details
+                Section("内置补丁组件") {
                     if let kit = builtInKit {
                         HStack {
-                            Text("基准版本")
+                            Text("内置支持版本")
                             Spacer()
-                            Text("\(kit.manifest.version) (build \(kit.manifest.build))")
+                            Text("\(kit.manifest.version) (Build \(kit.manifest.build))")
                                 .font(.subheadline.monospaced())
                                 .foregroundStyle(.secondary)
                         }
                         HStack {
-                            Text("底座状态")
+                            Text("组件完整性")
                             Spacer()
-                            Label("完整（\(kit.payloadEntryCount) 项）", systemImage: "checkmark.seal.fill")
+                            Label("正常（\(kit.payloadEntryCount) 项）", systemImage: "checkmark.seal.fill")
                                 .font(.caption.weight(.medium))
                                 .foregroundStyle(.green)
                         }
-                        DisclosureGroup("技术指纹与重新校验", isExpanded: $showBuiltInDetails) {
+                        DisclosureGroup("校验指纹与重新核验", isExpanded: $showBuiltInDetails) {
                             VStack(alignment: .leading, spacing: 8) {
                                 hashRow("修订版本", kit.manifest.revision)
                                 hashRow("manifest SHA-256", kit.manifestSHA256)
                                 hashRow("payload.zip SHA-256", kit.payloadZipSHA256)
                                 Button(action: onRecheckBuiltInKit) {
-                                    Label(isCheckingBuiltInKit ? "正在核验…" : "重新核验内置底座", systemImage: "arrow.clockwise")
+                                    Label(isCheckingBuiltInKit ? "正在核验…" : "重新校验组件完整性", systemImage: "arrow.clockwise")
                                         .font(.footnote.weight(.medium))
                                 }
                                 .disabled(isCheckingBuiltInKit)
@@ -222,7 +264,7 @@ struct ProfileManagerSheet: View {
                     } else {
                         HStack(spacing: 8) {
                             ProgressView()
-                            Text("正在校验内置底座…")
+                            Text("正在检查内置补丁组件…")
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }
@@ -230,13 +272,35 @@ struct ProfileManagerSheet: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .navigationTitle("适配配置管理")
+            .navigationTitle("版本配置与高级工具")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("完成") {
                         dismiss()
                     }
+                    .fontWeight(.semibold)
+                }
+            }
+            .alert(
+                "确认删除这份配置文件？",
+                isPresented: Binding(
+                    get: { profilePendingDelete != nil },
+                    set: { if !$0 { profilePendingDelete = nil } }
+                )
+            ) {
+                if let target = profilePendingDelete {
+                    Button("删除「\(target.name)」", role: .destructive) {
+                        onDeleteProfile(target)
+                        profilePendingDelete = nil
+                    }
+                }
+                Button("取消", role: .cancel) {
+                    profilePendingDelete = nil
+                }
+            } message: {
+                if let target = profilePendingDelete {
+                    Text("将移除本地保存的 \(target.version) (Build \(target.build)) 配置文件，后续可随时重新导入。")
                 }
             }
         }

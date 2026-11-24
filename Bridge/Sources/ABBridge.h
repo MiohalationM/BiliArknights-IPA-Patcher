@@ -6,6 +6,7 @@
 
 typedef struct {
     BOOL loaded;
+    BOOL valid;
     uint8_t unityUUID[16];
     BOOL hasUnityUUID;
     uint64_t unityTextSize;
@@ -29,7 +30,7 @@ typedef struct {
 } ABRuntimeOffsetProfile;
 
 extern ABLoginCoordinator *ABCurrent;
-extern bool ABUseBili, ABInGame;
+extern bool ABUseBili, ABInGame, ABEnteringServer;
 extern ABSceneGate ABScene;
 extern uintptr_t ABBase;
 extern void (*ABHGLogin)(id, SEL), (*ABHGLogout)(id, SEL);
@@ -43,6 +44,14 @@ BOOL ABLoginBusy(void);
 __attribute__((visibility("default"))) NSString *ABLoginState(void);
 __attribute__((visibility("default"))) const char *ABSDKLoadDiagnostic(void);
 BOOL ABShouldHideChannelButton(void);
+BOOL ABChannelPreconditionsReady(void);
+BOOL ABIsOnReadyLoginScreen(void);
+void ABLoadSavedChannelPreference(void);
+void ABMarkEnteringServer(void);
+void ABClearEnteringServer(void);
+void ABSetUIStateChangeHandler(void (*handler)(void));
+void ABNotifyUIStateChanged(void);
+NSString *ABChannelStateDiagnostic(void);
 void ABObserveScene(NSString *scene);
 BOOL ABConfigureRuntimeRoute(uintptr_t base);
 BOOL ABApplyGameRoute(BOOL bili, NSError **error);
@@ -51,6 +60,7 @@ NSString *ABRuntimeScene(void);
 NSString *ABRuntimeRouteStatus(void);
 NSString *ABIL2CPPExportDiagnostic(void);
 const ABRuntimeOffsetProfile *ABActiveRuntimeProfile(void);
+BOOL ABRuntimeProfileIsValid(void);
 NSString *ABExpectedHostVersion(void);
 NSString *ABExpectedHostBuild(void);
 BOOL ABCheckUnityImage(uintptr_t base);

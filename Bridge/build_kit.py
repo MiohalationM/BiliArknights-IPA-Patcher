@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Build source-built ABLoginBridge.dylib + official ABSDKCarrier.dylib kit for ios-ipa-tool."""
 from pathlib import Path
+import argparse
 import hashlib
 import json
+import os
 import plistlib
 import subprocess
 import sys
@@ -11,12 +13,13 @@ import zipfile
 ROOT = Path(__file__).resolve().parent
 TOOL_ROOT = ROOT.parent
 BIIOS_ROOT = TOOL_ROOT.parent
-UPSTREAM_KIT = BIIOS_ROOT / "releases/v7.5.1/profiles/2.7.91-76/kit"
+DEFAULT_UPSTREAM_KIT = BIIOS_ROOT / "releases/v7.5.1/profiles/2.7.91-76/kit"
 BUILD_OUT = ROOT / "build"
 KIT_OUT = TOOL_ROOT / "Packages/IPAPatcherCore/Sources/IPAPatcherCore/Resources/Kits/carrier-2.7.91"
 
 EXPECTED_UPSTREAM_BRIDGE_SHA256 = "5fe8d0c934f533835f21b691415b318fda2e4e1ad5857310f0d885f9e37b16ce"
-REVISION = "7.5-2.7.91-bridge-carrier-r4"
+REVISION = "7.5-2.7.91-bridge-carrier-r5"
+DETERMINISTIC_ZIP_DATETIME = (2026, 1, 1, 0, 0, 0)
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -58,8 +61,9 @@ def build_bridge_dylib() -> Path:
         *flags, "-dynamiclib", *objects,
         "-framework", "Foundation",
         "-framework", "UIKit",
+        "-framework", "CoreGraphics",
+        "-framework", "QuartzCore",
         "-install_name", "@rpath/ABLoginBridge.dylib",
-        "-Wl,-undefined,error",
         "-Wl,-exported_symbol,_ABEnableBLoginHooks",
         "-Wl,-exported_symbol,_ABLoginState",
         "-Wl,-exported_symbol,_ABMakeU8LoginResult",
@@ -122,15 +126,17 @@ def make_runtime_profile_plist() -> bytes:
     return plistlib.dumps(profile, fmt=plistlib.FMT_BINARY)
 
 
-def build_kit() -> None:
-    if not (UPSTREAM_KIT / "payload.zip").is_file():
-        raise SystemExit(f"Missing upstream kit at {UPSTREAM_KIT}")
+def build_kit(upstream_kit: Path) -> None:
+    if not (upstream_kit / "payload.zip").is_file():
+        raise SystemExit(
+            f"Missing upstream kit at {upstream_kit} (pass --upstream-kit <dir> containing manifest.json & payload.zip)"
+        )
 
     bridge_dylib = build_bridge_dylib()
-    carrier_dylib = prepare_sdk_carrier(UPSTREAM_KIT / "payload.zip")
+    carrier_dylib = prepare_sdk_carrier(upstream_kit / "payload.zip")
 
     app_root = "Payload/Arknights.app/"
-    with zipfile.ZipFile(UPSTREAM_KIT / "payload.zip") as z:
+    with zipfile.ZipFile(upstream_kit / "payload.zip") as z:
         entries = {name: z.read(name) for name in z.namelist() if not name.endswith("/")}
 
     # Exclude frozen host Info.plist from static overlay: IPAPatcherCore dynamically merges
@@ -157,9 +163,14 @@ def build_kit() -> None:
     payload_path = KIT_OUT / "payload.zip"
     with zipfile.ZipFile(payload_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zout:
         for name in sorted(entries):
-            zout.writestr(name, entries[name])
+            info = zipfile.ZipInfo(filename=name, date_time=DETERMINISTIC_ZIP_DATETIME)
+            info.create_system = 3
+            info.compress_type = zipfile.ZIP_DEFLATED
+            mode = 0o100755 if name.endswith(".dylib") else 0o100644
+            info.external_attr = mode << 16
+            zout.writestr(info, entries[name], compress_type=zipfile.ZIP_DEFLATED, compresslevel=6)
 
-    base_manifest = json.loads((UPSTREAM_KIT / "manifest.json").read_bytes())
+    base_manifest = json.loads((upstream_kit / "manifest.json").read_bytes())
     manifest = {
         "schema": 1,
         "revision": REVISION,
@@ -200,5 +211,17 @@ def build_kit() -> None:
     print(json.dumps(summary, indent=2, ensure_ascii=False))
 
 
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Build audited ABLoginBridge.dylib + ABSDKCarrier.dylib kit.")
+    parser.add_argument(
+        "--upstream-kit",
+        type=Path,
+        default=Path(os.environ.get("ARKNIGHTS_UPSTREAM_KIT", str(DEFAULT_UPSTREAM_KIT))),
+        help="Path to upstream kit directory containing manifest.json and payload.zip",
+    )
+    args = parser.parse_args()
+    build_kit(args.upstream_kit)
+
+
 if __name__ == "__main__":
-    build_kit()
+    main()

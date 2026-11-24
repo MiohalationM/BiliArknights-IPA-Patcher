@@ -29,6 +29,11 @@ enum TempWorkspaceManager {
         return base.appendingPathComponent(pendingExportsFolder, isDirectory: true)
     }
 
+    static var documentsInboxRootURL: URL? {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("Inbox", isDirectory: true)
+    }
+
     // MARK: - Transient Working Sessions (`.partial` & `tmp/*-Inbox`)
 
     static func createSessionDirectory() throws -> URL {
@@ -42,13 +47,37 @@ enum TempWorkspaceManager {
         try? FileManager.default.removeItem(at: url)
     }
 
-    /// Removes unfinished `.partial` sessions and stale `tmp/*-Inbox` picker copies without touching verified pending exports.
-    static func cleanupTransientJunk() {
+    /// Removes unfinished `.partial` sessions and stale `tmp/*-Inbox` picker copies without touching verified pending exports
+    /// or any currently active processing session/input file (prevents cold-start `onOpenURL` races).
+    static func cleanupTransientJunk(
+        excludingActiveSessionDir: URL? = nil,
+        excludingInboxFile: URL? = nil
+    ) {
         let fm = FileManager.default
+        let activeSessionStd = excludingActiveSessionDir?.standardizedFileURL
         if fm.fileExists(atPath: transientSessionsRootURL.path) {
-            try? fm.removeItem(at: transientSessionsRootURL)
+            if let activeSessionStd,
+               let items = try? fm.contentsOfDirectory(at: transientSessionsRootURL, includingPropertiesForKeys: nil) {
+                for item in items where item.standardizedFileURL != activeSessionStd {
+                    try? fm.removeItem(at: item)
+                }
+            } else if activeSessionStd == nil {
+                try? fm.removeItem(at: transientSessionsRootURL)
+            }
         }
-        cleanupAllTempInboxDirectories()
+        cleanupAllTempInboxDirectories(excludingFile: excludingInboxFile)
+        cleanupDocumentsInboxDirectory(excludingFile: excludingInboxFile)
+    }
+
+    /// Writes a temporary pretty-printed `.json` file for exporting an auto-resolved `RuntimeOffsetProfile`.
+    static func writeTemporaryProfileExportJSON(for profile: RuntimeOffsetProfile) throws -> URL {
+        let dir = try createSessionDirectory()
+        let safeVer = PatchApplicator.sanitizeFilenameToken(profile.version, fallback: "unknown")
+        let safeBuild = PatchApplicator.sanitizeFilenameToken(profile.build, fallback: "0")
+        let fileURL = dir.appendingPathComponent("Arknights-\(safeVer)-b\(safeBuild)-profile.json", isDirectory: false)
+        let data = try profile.encodeToPrettyJSONData()
+        try data.write(to: fileURL, options: [.atomic])
+        return fileURL
     }
 
     static func cleanupImportedInboxCopyIfNeeded(_ url: URL) {
@@ -56,12 +85,31 @@ enum TempWorkspaceManager {
         let tmpRoot = FileManager.default.temporaryDirectory.standardizedFileURL.path
         if standardized.hasPrefix(tmpRoot) && standardized.contains("-Inbox/") {
             try? FileManager.default.removeItem(at: url)
+            return
+        }
+        if let docsInboxPath = documentsInboxRootURL?.standardizedFileURL.path,
+           standardized.hasPrefix(docsInboxPath + "/") {
+            try? FileManager.default.removeItem(at: url)
         }
     }
 
-    private static func cleanupAllTempInboxDirectories() {
+    private static func cleanupDocumentsInboxDirectory(excludingFile: URL? = nil) {
+        guard let inboxDir = documentsInboxRootURL else { return }
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: inboxDir.path),
+              let children = try? fm.contentsOfDirectory(at: inboxDir, includingPropertiesForKeys: nil) else {
+            return
+        }
+        let excludedPath = excludingFile?.standardizedFileURL.path
+        for child in children where child.standardizedFileURL.path != excludedPath {
+            try? fm.removeItem(at: child)
+        }
+    }
+
+    private static func cleanupAllTempInboxDirectories(excludingFile: URL? = nil) {
         let fm = FileManager.default
         let tmpRoot = fm.temporaryDirectory
+        let excludedPath = excludingFile?.standardizedFileURL.path
         guard let items = try? fm.contentsOfDirectory(
             at: tmpRoot,
             includingPropertiesForKeys: nil,
@@ -69,7 +117,16 @@ enum TempWorkspaceManager {
         ) else { return }
 
         for item in items where item.lastPathComponent.hasSuffix("-Inbox") {
-            try? fm.removeItem(at: item)
+            let dirPath = item.standardizedFileURL.path
+            if let excludedPath, excludedPath.hasPrefix(dirPath + "/") {
+                if let children = try? fm.contentsOfDirectory(at: item, includingPropertiesForKeys: nil) {
+                    for child in children where child.standardizedFileURL.path != excludedPath {
+                        try? fm.removeItem(at: child)
+                    }
+                }
+            } else {
+                try? fm.removeItem(at: item)
+            }
         }
     }
 
@@ -119,7 +176,8 @@ enum TempWorkspaceManager {
                 durationSeconds: result.durationSeconds,
                 adaptationMode: result.adaptationMode,
                 appliedCustomBiliIcons: result.appliedCustomBiliIcons,
-                profileDisplayName: result.profileDisplayName
+                profileDisplayName: result.profileDisplayName,
+                generatedRuntimeProfile: result.generatedRuntimeProfile
             )
 
             let record = PendingExportRecord(
@@ -205,7 +263,8 @@ enum TempWorkspaceManager {
                 durationSeconds: decoded.result.durationSeconds,
                 adaptationMode: decoded.result.adaptationMode,
                 appliedCustomBiliIcons: decoded.result.appliedCustomBiliIcons,
-                profileDisplayName: decoded.result.profileDisplayName
+                profileDisplayName: decoded.result.profileDisplayName,
+                generatedRuntimeProfile: decoded.result.generatedRuntimeProfile
             )
             let reboundRecord = PendingExportRecord(
                 sessionID: decoded.sessionID,
@@ -247,19 +306,25 @@ enum TempWorkspaceManager {
                 total &+= directoryAllocatedBytes(at: item)
             }
         }
+        if let docsInbox = documentsInboxRootURL {
+            total &+= directoryAllocatedBytes(at: docsInbox)
+        }
         return total
     }
 
-    /// Manually deletes ALL local cached outputs, transient sessions, and temp Inbox files, returning freed bytes.
+    /// Manually deletes ALL local cached outputs, transient sessions, and temp/Documents Inbox files,
+    /// returning the actual freed bytes (`before - after`) and any remaining bytes if deletion partially failed.
     @discardableResult
-    static func deleteAllLocalCache() -> UInt64 {
+    static func deleteAllLocalCache() -> (freed: UInt64, remaining: UInt64) {
         let before = calculateTotalCacheBytes()
         let fm = FileManager.default
         if fm.fileExists(atPath: pendingExportsRootURL.path) {
             try? fm.removeItem(at: pendingExportsRootURL)
         }
         cleanupTransientJunk()
-        return before
+        let remaining = calculateTotalCacheBytes()
+        let freed = before > remaining ? (before - remaining) : 0
+        return (freed, remaining)
     }
 
     // MARK: - Helpers

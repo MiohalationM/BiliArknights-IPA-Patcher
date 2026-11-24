@@ -13,17 +13,17 @@ public enum PatchPipelineStage: Int, CaseIterable, Sendable, Hashable, Identifia
     public var title: String {
         switch self {
         case .verifyingKit:
-            return "校验内置底座"
+            return "准备补丁组件"
         case .inspectingHost:
-            return "识别宿主 IPA 信息"
+            return "读取游戏安装包"
         case .matchingCompatibility:
-            return "匹配适配配置 / 解析偏移"
+            return "匹配游戏版本"
         case .preflightValidating:
-            return "预检与自动定位 Mach-O 注入位点"
+            return "检查安装包并准备注入"
         case .repackaging:
-            return "分块重打包 IPA"
+            return "生成 B 服安装包"
         case .verifyingOutput:
-            return "复核输出 ZIP 与哈希校验"
+            return "校验成品完整性"
         }
     }
 }
@@ -71,6 +71,7 @@ public struct PatchExecutionResult: Sendable, Hashable, Codable {
     public let adaptationMode: AdaptationMode
     public let appliedCustomBiliIcons: Bool
     public let profileDisplayName: String?
+    public let generatedRuntimeProfile: RuntimeOffsetProfile?
 
     public init(
         outputURL: URL,
@@ -86,7 +87,8 @@ public struct PatchExecutionResult: Sendable, Hashable, Codable {
         durationSeconds: TimeInterval,
         adaptationMode: AdaptationMode = .builtInVerified,
         appliedCustomBiliIcons: Bool = true,
-        profileDisplayName: String? = nil
+        profileDisplayName: String? = nil,
+        generatedRuntimeProfile: RuntimeOffsetProfile? = nil
     ) {
         self.outputURL = outputURL
         self.suggestedExportFilename = suggestedExportFilename
@@ -102,6 +104,7 @@ public struct PatchExecutionResult: Sendable, Hashable, Codable {
         self.adaptationMode = adaptationMode
         self.appliedCustomBiliIcons = appliedCustomBiliIcons
         self.profileDisplayName = profileDisplayName
+        self.generatedRuntimeProfile = generatedRuntimeProfile
     }
 
     enum CodingKeys: String, CodingKey {
@@ -119,6 +122,7 @@ public struct PatchExecutionResult: Sendable, Hashable, Codable {
         case adaptationMode
         case appliedCustomBiliIcons
         case profileDisplayName
+        case generatedRuntimeProfile
     }
 
     public init(from decoder: Decoder) throws {
@@ -137,5 +141,6 @@ public struct PatchExecutionResult: Sendable, Hashable, Codable {
         self.adaptationMode = (try? c.decodeIfPresent(AdaptationMode.self, forKey: .adaptationMode)) ?? .builtInVerified
         self.appliedCustomBiliIcons = (try? c.decodeIfPresent(Bool.self, forKey: .appliedCustomBiliIcons)) ?? true
         self.profileDisplayName = try? c.decodeIfPresent(String.self, forKey: .profileDisplayName)
+        self.generatedRuntimeProfile = try? c.decodeIfPresent(RuntimeOffsetProfile.self, forKey: .generatedRuntimeProfile)
     }
 }

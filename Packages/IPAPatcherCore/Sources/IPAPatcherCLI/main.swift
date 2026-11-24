@@ -10,9 +10,9 @@ enum CLICommand {
         }
 
         do {
-            let engine = try IPAPatcherEngine.builtInDefault()
             switch subcommand {
             case "verify-kit":
+                let engine = try IPAPatcherEngine.builtInDefault()
                 let kits = try engine.verifyConfiguredKits()
                 for kit in kits {
                     print("OK: \(kit.manifest.revision) | manifest=\(kit.manifestSHA256) | payload=\(kit.payloadZipSHA256) | entries=\(kit.payloadEntryCount)")
@@ -25,7 +25,7 @@ enum CLICommand {
                     return 2
                 }
                 let url = URL(fileURLWithPath: args[1])
-                let profile = try engine.inspectHost(at: url, options: .default)
+                let profile = try HostInspector().inspect(ipaURL: url, options: .default)
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
                 let data = try encoder.encode(profile)
@@ -37,6 +37,7 @@ enum CLICommand {
                     fputs("Usage: ipa-patcher-cli self-check <ipa-path>\n", stderr)
                     return 2
                 }
+                let engine = try IPAPatcherEngine.builtInDefault()
                 let url = URL(fileURLWithPath: args[1])
                 let (host, report, comparisons) = try engine.selfCheckAutoResolver(ipaURL: url)
                 let matched = comparisons.filter(\.isMatch).count
@@ -56,6 +57,7 @@ enum CLICommand {
                     fputs("Usage: ipa-patcher-cli match <ipa-path> [--profile <path>] [--no-auto]\n", stderr)
                     return 2
                 }
+                let engine = try IPAPatcherEngine.builtInDefault()
                 let url = URL(fileURLWithPath: args[1])
                 let parsed = try parseFlags(Array(args.dropFirst(2)))
                 let kits = try engine.verifyConfiguredKits()
@@ -86,10 +88,12 @@ enum CLICommand {
                     fputs("Usage: ipa-patcher-cli patch <input-ipa> <output-dir> [--original-icon] [--profile <path>] [--no-auto] [--force]\n", stderr)
                     return 2
                 }
+                let engine = try IPAPatcherEngine.builtInDefault()
                 let inputURL = URL(fileURLWithPath: args[1])
                 let outputDir = URL(fileURLWithPath: args[2])
                 let parsed = try parseFlags(Array(args.dropFirst(3)))
-                let kits = try engine.verifyConfiguredKits()
+                let loadedKits = try engine.loadAndVerifyConfiguredKits()
+                let kits = loadedKits.map(\.verifiedKit)
                 let session = try engine.openInputSession(at: inputURL)
                 let profile = try engine.inspectHost(session: session)
                 let match = try engine.matchCompatibility(
@@ -106,12 +110,14 @@ enum CLICommand {
                     }
                     return 1
                 }
+                let matchedPreloaded = loadedKits.first { $0.verifiedKit.profile == config.profile }
                 let result = try engine.applyPatch(
                     configuration: config,
                     sourceIPAURL: inputURL,
                     workingDirectory: outputDir,
                     options: parsed.options,
                     inputSession: session,
+                    preloadedKit: matchedPreloaded,
                     overwriteExistingOutput: parsed.overwriteExisting
                 )
                 print("SUCCESS [\(result.adaptationMode.rawValue) | icon=\(result.appliedCustomBiliIcons ? "bili" : "orig")]: \(result.outputURL.path)")
@@ -146,10 +152,15 @@ enum CLICommand {
                 parsed.options.enableAutoAdaptation = false
             } else if f == "--force" {
                 parsed.overwriteExisting = true
-            } else if f == "--profile", idx + 1 < flags.count {
+            } else if f == "--profile" {
+                guard idx + 1 < flags.count else {
+                    throw PatchError.invalidCustomProfile("参数 --profile 缺少文件路径")
+                }
                 let data = try Data(contentsOf: URL(fileURLWithPath: flags[idx + 1]))
                 parsed.customProfiles.append(try RuntimeOffsetProfile.decode(from: data))
                 idx += 1
+            } else {
+                throw PatchError.invalidCustomProfile("未知命令行参数：\(f)")
             }
             idx += 1
         }

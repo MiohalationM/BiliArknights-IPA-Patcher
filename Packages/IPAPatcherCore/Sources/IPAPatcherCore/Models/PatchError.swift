@@ -44,17 +44,17 @@ public enum PatchError: Error, LocalizedError, Sendable {
              .payloadZipHashMismatch, .payloadEntryMismatch, .patchPathOutsideAppRoot:
             return "内置补丁包校验失败"
         case .encryptedHostIPA:
-            return "检测到加密的 IPA"
+            return "这个 IPA 还没砸壳"
         case .incompatibleHost:
-            return "当前 IPA 版本不兼容"
+            return "当前游戏版本暂不兼容"
         case .alreadyInjected:
-            return "该 IPA 已经打过补丁"
+            return "这个 IPA 已经打过补丁了"
         case .machOInjectionFailed:
-            return "Mach-O 动态注入预检未通过"
+            return "补丁注入预检未通过"
         case .invalidCustomProfile:
-            return "手工适配配置无效"
+            return "配置文件格式有误"
         case .autoResolutionFailed:
-            return "自动定位 IL2CPP 偏移未通过"
+            return "新版本自动适配未通过"
         case .preimageMismatch:
             return "补丁位置原始字节不匹配"
         case .invalidPatchedMetadata, .encryptedOutputBinary:
@@ -98,12 +98,12 @@ public enum PatchError: Error, LocalizedError, Sendable {
             return "补丁条目超出主应用目录范围：\(path)"
         case .encryptedHostIPA(let binaries):
             let list = binaries.prefix(3).joined(separator: "、")
-            return "该 IPA 包含未解密的加密二进制（\(list)）。本工具仅支持已解密 IPA，不执行解密。"
+            return "该 IPA 包含未砸壳（已加密）的程序文件（\(list)）。本工具仅支持已砸壳 IPA，请更换砸壳后的官服 IPA 重试。"
         case .incompatibleHost(let report):
             return report.summaryText
         case .alreadyInjected(let binaryPath, let dylibPath):
             let binName = URL(fileURLWithPath: binaryPath).lastPathComponent
-            return "\(binName) 中已存在 \(dylibPath) 加载命令，说明该 IPA 此前已经注入过补丁，请选择未修补过的原始解密 IPA。"
+            return "检测到 \(binName) 中已包含 B 服补丁（\(dylibPath)），说明这个 IPA 已经打过补丁，请选择未修改过的原版砸壳 IPA。"
         case .machOInjectionFailed(let binaryPath, let reason):
             let binName = URL(fileURLWithPath: binaryPath).lastPathComponent
             return "无法向 \(binName) 自动注入桥接库：\(reason)"

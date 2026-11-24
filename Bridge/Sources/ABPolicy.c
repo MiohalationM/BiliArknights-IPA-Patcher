@@ -37,3 +37,45 @@ bool ABKnownGameHost(const char *host) {
     return host && (!strcmp(host, "https://ak-gs-b.hypergryph.com") ||
                     !strcmp(host, "https://ak-gs-gf.hypergryph.com"));
 }
+
+static bool ABHasPrefix(const char *s, const char *prefix) {
+    size_t len = strlen(prefix);
+    return strncmp(s, prefix, len) == 0;
+}
+
+bool ABIsPreLoginOrTransitionScene(const char *scene) {
+    if (!scene || !scene[0]) return true;
+    static const char *const kExact[] = {
+        "login", "boot", "init", "splash", "start", "title",
+        "update", "hotupdate", "patch", "check", "loading", "load",
+        "empty", "blank", "transition", "none", "null"
+    };
+    for (size_t i = 0; i < sizeof(kExact) / sizeof(kExact[0]); ++i) {
+        if (strcmp(scene, kExact[i]) == 0) return true;
+    }
+    static const char *const kPrefixes[] = {
+        "boot_", "init_", "splash_", "login_", "update_",
+        "hotupdate_", "loading_", "load_", "transition_"
+    };
+    for (size_t i = 0; i < sizeof(kPrefixes) / sizeof(kPrefixes[0]); ++i) {
+        if (ABHasPrefix(scene, kPrefixes[i])) return true;
+    }
+    return false;
+}
+
+bool ABIsInGameScene(const char *scene, bool sawLogin, bool enteringServer) {
+    if (!scene || !scene[0]) return false;
+    if (strcmp(scene, "home") == 0 || ABHasPrefix(scene, "home_")) return true;
+    if (ABIsPreLoginOrTransitionScene(scene)) return false;
+    return sawLogin || enteringServer;
+}
+
+bool ABShouldExpireEnteringServer(bool enteringServer, bool inGame,
+                                  bool isLoginScene, double elapsedSeconds,
+                                  double timeoutSeconds) {
+    return enteringServer && !inGame && isLoginScene && elapsedSeconds >= timeoutSeconds;
+}
+
+bool ABShouldHideButtonForState(bool inGame, bool loginBusy, bool enteringServer) {
+    return inGame || loginBusy || enteringServer;
+}

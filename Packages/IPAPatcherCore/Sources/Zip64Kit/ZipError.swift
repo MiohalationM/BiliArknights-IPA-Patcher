@@ -5,6 +5,7 @@ public enum ZipError: Error, LocalizedError, Sendable, Equatable {
     case invalidSignature(String)
     case truncatedArchive(String)
     case unsupportedCompressionMethod(UInt16, entry: String)
+    case encryptedArchive(entry: String)
     case duplicateEntry(String)
     case unsafeEntryPath(String)
     case entryNotFound(String)
@@ -25,6 +26,8 @@ public enum ZipError: Error, LocalizedError, Sendable, Equatable {
             return "ZIP 文件不完整或已截断：\(message)"
         case .unsupportedCompressionMethod(let method, let entry):
             return "不支持的 ZIP 压缩方式（\(method)）：\(entry)"
+        case .encryptedArchive(let entry):
+            return "不支持加密的 ZIP 条目：\(entry)"
         case .duplicateEntry(let name):
             return "ZIP 包含重复条目：\(name)"
         case .unsafeEntryPath(let name):

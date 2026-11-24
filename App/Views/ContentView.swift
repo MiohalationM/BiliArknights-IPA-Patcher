@@ -3,13 +3,37 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ContentView: View {
-    @State private var viewModel = PatchPipelineViewModel()
-    @State private var showErrorTechnicalDetails = false
+    @StateObject private var viewModel = PatchPipelineViewModel()
+    @State private var isShowingQuickGuide = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 14) {
+                    if let busyNotice = viewModel.incomingBusyNotice {
+                        HStack(alignment: .top, spacing: 9) {
+                            Image(systemName: "info.circle.fill")
+                                .foregroundStyle(.orange)
+                                .padding(.top, 1)
+                            Text(busyNotice)
+                                .font(.caption)
+                                .foregroundStyle(.primary)
+                            Spacer(minLength: 4)
+                            Button {
+                                viewModel.dismissIncomingBusyNotice()
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                                .fill(Color.orange.opacity(0.14))
+                        )
+                    }
+
                     switch viewModel.state {
                     case .idle:
                         HeroActionCard(
@@ -30,8 +54,9 @@ struct ContentView: View {
                         StorageStatusCard(
                             cachedBytes: viewModel.cachedStorageBytes,
                             hasPendingExport: viewModel.hasPendingExport,
+                            hasExportedPendingOutput: viewModel.hasExportedPendingOutput,
                             notice: viewModel.storageNotice,
-                            isDisabled: viewModel.state.isProcessing,
+                            isDisabled: viewModel.state.isProcessing || viewModel.isClearingCache,
                             onRestorePendingExport: { viewModel.restorePendingExportIfPresent() },
                             onClearCache: { viewModel.clearAllLocalCacheManually() }
                         )
@@ -52,16 +77,19 @@ struct ContentView: View {
                         MismatchListCard(
                             report: report,
                             onRetry: { viewModel.openFileImporter() },
-                            onImportManualProfile: { viewModel.openProfileManager() }
+                            onImportManualProfile: { viewModel.openProfileManager() },
+                            onReturnHome: { viewModel.returnToHomeKeepingOutput() }
                         )
                         HostMetadataCard(profile: hostProfile, isMatched: false)
 
                     case .failed(let fileName, let hostProfile, let title, let message, let technicalDetail):
-                        failedCard(
+                        FailedSessionCard(
                             fileName: fileName,
                             title: title,
                             message: message,
-                            technicalDetail: technicalDetail
+                            technicalDetail: technicalDetail,
+                            onRetry: { viewModel.openFileImporter() },
+                            onReturnHome: { viewModel.returnToHomeKeepingOutput() }
                         )
                         if let hostProfile {
                             HostMetadataCard(profile: hostProfile, isMatched: nil)
@@ -76,6 +104,12 @@ struct ContentView: View {
                             exportedFileName: nil,
                             exportNotice: exportNotice,
                             onExport: { viewModel.presentExporter() },
+                            onExportProfileJSON: { profile, noticeHandler in
+                                viewModel.exportRuntimeProfileJSON(profile, onNotice: noticeHandler)
+                            },
+                            onCopyProfileJSON: { profile in
+                                viewModel.copyRuntimeProfileJSON(profile)
+                            },
                             onDeleteAndFreeSpace: { viewModel.deleteLocalOutputAndFreeSpace() },
                             onSelectAnother: { viewModel.returnToHomeKeepingOutput() }
                         )
@@ -87,6 +121,12 @@ struct ContentView: View {
                             exportedFileName: exportedFileName,
                             exportNotice: nil,
                             onExport: { viewModel.presentExporter() },
+                            onExportProfileJSON: { profile, noticeHandler in
+                                viewModel.exportRuntimeProfileJSON(profile, onNotice: noticeHandler)
+                            },
+                            onCopyProfileJSON: { profile in
+                                viewModel.copyRuntimeProfileJSON(profile)
+                            },
                             onDeleteAndFreeSpace: { viewModel.deleteLocalOutputAndFreeSpace() },
                             onSelectAnother: { viewModel.returnToHomeKeepingOutput() }
                         )
@@ -97,10 +137,30 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
+                .frame(maxWidth: 640)
+                .frame(maxWidth: .infinity)
             }
-            .background(Color(.systemGroupedBackground))
+            .background(AppBackgroundView())
             .navigationTitle("方舟补丁工具")
             .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        isShowingQuickGuide = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "questionmark.circle")
+                            Text("指南")
+                                .font(.subheadline.weight(.medium))
+                        }
+                        .foregroundStyle(AppTheme.brandCyan)
+                    }
+                    .accessibilityLabel("使用指南")
+                }
+            }
+            .sheet(isPresented: $isShowingQuickGuide) {
+                QuickGuideSheet()
+            }
             .sheet(isPresented: $viewModel.isShowingProfileManager) {
                 ProfileManagerSheet(
                     customProfiles: viewModel.customProfiles,
@@ -116,6 +176,9 @@ struct ContentView: View {
                     onImportProfile: { viewModel.importCustomProfileFromFiles() },
                     onDeleteProfile: { profile in viewModel.deleteCustomProfile(profile) },
                     onRunSelfCheck: { viewModel.runAutoResolverSelfCheckFromFiles() },
+                    onCancelSelfCheck: { viewModel.cancelAutoResolverSelfCheck() },
+                    onExportResolvedProfile: { profile in viewModel.exportRuntimeProfileJSON(profile) },
+                    onCopyResolvedProfile: { profile in viewModel.copyRuntimeProfileJSON(profile) },
                     onRecheckBuiltInKit: { viewModel.verifyBuiltInKitInBackground() }
                 )
             }
@@ -128,88 +191,22 @@ struct ContentView: View {
         }
     }
 
-    private func failedCard(
-        fileName: String,
-        title: String,
-        message: String,
-        technicalDetail: String
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "xmark.octagon.fill")
-                    .font(.title2)
-                    .foregroundStyle(.red)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.headline)
-                    Text(fileName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Text(message)
-                .font(.subheadline)
-                .foregroundStyle(.primary)
-
-            DisclosureGroup("技术诊断信息", isExpanded: $showErrorTechnicalDetails) {
-                Text(technicalDetail)
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color(.tertiarySystemFill))
-                    )
-                    .padding(.top, 4)
-            }
-            .font(.footnote)
-
-            VStack(spacing: 10) {
-                Button {
-                    viewModel.openFileImporter()
-                } label: {
-                    Label("重新选择 IPA", systemImage: "doc.badge.plus")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                }
-                .buttonStyle(.borderedProminent)
-
-                Button {
-                    viewModel.returnToHomeKeepingOutput()
-                } label: {
-                    Text("返回首页")
-                        .font(.footnote.weight(.medium))
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-        .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
-        )
-    }
-
     private func cancelledCard(fileName: String) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 10) {
-                Image(systemName: "stop.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(.secondary)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("已取消处理")
+        VStack(alignment: .leading, spacing: 15) {
+            HStack(spacing: 12) {
+                IconBadge(systemName: "stop.circle.fill", color: .secondary, size: 42, iconScale: 0.50)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("已取消打包")
                         .font(.headline)
                     Text(fileName)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
             }
 
-            Text("所有未完成的临时输出已自动清理，原始 IPA 未被修改。")
+            Text("未完成的临时文件已自动清理，你的原游戏包没有受到任何影响。")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
@@ -217,12 +214,9 @@ struct ContentView: View {
                 Button {
                     viewModel.openFileImporter()
                 } label: {
-                    Label("重新选择 IPA", systemImage: "doc.badge.plus")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
+                    Label("重新选择砸壳 IPA", systemImage: "doc.badge.plus")
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(AppPrimaryButtonStyle())
 
                 Button {
                     viewModel.returnToHomeKeepingOutput()
@@ -230,22 +224,85 @@ struct ContentView: View {
                     Text("返回首页")
                         .font(.footnote.weight(.medium))
                         .foregroundStyle(.secondary)
+                        .padding(.vertical, 4)
                 }
             }
         }
-        .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground))
-        )
+        .padding(20)
+        .appCard(cornerRadius: 22)
     }
 
     private var footerNotice: some View {
-        Text("仅处理已解密 IPA · 输出待签名 IPA · 全程离线不联网")
+        Text("仅支持砸壳 IPA · 导出后需用巨魔或自签安装 · 全程离线不联网")
             .font(.caption2)
             .foregroundStyle(.tertiary)
             .multilineTextAlignment(.center)
             .padding(.top, 4)
-            .padding(.bottom, 16)
+            .padding(.bottom, 18)
+    }
+}
+
+private struct FailedSessionCard: View {
+    let fileName: String
+    let title: String
+    let message: String
+    let technicalDetail: String
+    let onRetry: () -> Void
+    let onReturnHome: () -> Void
+
+    @State private var showErrorTechnicalDetails = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 15) {
+            HStack(alignment: .top, spacing: 12) {
+                IconBadge(systemName: "xmark.octagon.fill", color: .red, size: 42, iconScale: 0.50)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.headline)
+                    Text(fileName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            DisclosureGroup("查看技术诊断详情", isExpanded: $showErrorTechnicalDetails) {
+                Text(technicalDetail)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color(.tertiarySystemFill).opacity(0.75))
+                    )
+                    .padding(.top, 6)
+            }
+            .font(.footnote.weight(.medium))
+            .foregroundStyle(.secondary)
+
+            VStack(spacing: 10) {
+                Button(action: onRetry) {
+                    Label("重新选择砸壳 IPA", systemImage: "doc.badge.plus")
+                }
+                .buttonStyle(AppPrimaryButtonStyle())
+
+                Button(action: onReturnHome) {
+                    Text("返回首页")
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 4)
+                }
+            }
+        }
+        .padding(20)
+        .appCard(cornerRadius: 22)
     }
 }

@@ -270,6 +270,9 @@ public final class Zip64Writer {
         onBytesCopied: ((UInt64) -> Void)? = nil
     ) throws -> WrittenZipEntry {
         try ensureWritable(name: entry.name)
+        guard !entry.isEncrypted else {
+            throw ZipError.encryptedArchive(entry: entry.name)
+        }
         guard entry.compressionMethod == ZipConstants.methodStored || entry.compressionMethod == ZipConstants.methodDeflated else {
             throw ZipError.unsupportedCompressionMethod(entry.compressionMethod, entry: entry.name)
         }
@@ -447,6 +450,9 @@ public final class Zip64Writer {
     private func ensureWritable(name: String) throws {
         guard !isFinalized && !isClosed else { throw ZipError.alreadyFinalized }
         try ZipPathValidator.validateSinglePath(name)
+        guard name.utf8.count <= Int(UInt16.max) else {
+            throw ZipError.unsafeEntryPath("路径过长（超过 65535 字节）：\(name.prefix(64))…")
+        }
         guard !writtenNames.contains(name) else { throw ZipError.duplicateEntry(name) }
     }
 
@@ -513,6 +519,9 @@ public final class Zip64Writer {
                 let errStr = String(cString: strerror(errno))
                 throw ZipError.ioError("写入输出文件失败：\(errStr)")
             }
+            if n == 0 {
+                throw ZipError.ioError("写入输出文件提前返回 0 字节")
+            }
             written += n
         }
         currentOffset += UInt64(count)
@@ -528,6 +537,9 @@ public final class Zip64Writer {
                     if errno == EINTR { continue }
                     let errStr = String(cString: strerror(errno))
                     throw ZipError.ioError("回写 ZIP 头失败：\(errStr)")
+                }
+                if n == 0 {
+                    throw ZipError.ioError("回写 ZIP 头提前返回 0 字节")
                 }
                 written += n
             }

@@ -286,8 +286,21 @@ public struct RuntimeOffsetProfile: Sendable, Hashable, Codable, Identifiable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        let schemaVal = (try? c.decode(Int.self, forKey: .schema)) ?? 1
-        let bundleIDVal = (try? c.decode(String.self, forKey: .bundleID)) ?? "com.hypergryph.arknights"
+
+        let schemaVal: Int
+        if c.contains(.schema), (try? c.decodeNil(forKey: .schema)) != true {
+            schemaVal = try c.decode(Int.self, forKey: .schema)
+        } else {
+            schemaVal = 1
+        }
+
+        let bundleIDVal: String
+        if c.contains(.bundleID), (try? c.decodeNil(forKey: .bundleID)) != true {
+            bundleIDVal = try c.decode(String.self, forKey: .bundleID)
+        } else {
+            bundleIDVal = "com.hypergryph.arknights"
+        }
+
         let versionVal = try c.decode(String.self, forKey: .version)
         let buildVal: String
         if let strBuild = try? c.decode(String.self, forKey: .build) {
@@ -295,29 +308,70 @@ public struct RuntimeOffsetProfile: Sendable, Hashable, Codable, Identifiable {
         } else if let intBuild = try? c.decode(Int.self, forKey: .build) {
             buildVal = String(intBuild)
         } else {
-            throw DecodingError.keyNotFound(CodingKeys.build, .init(codingPath: c.codingPath, debugDescription: "缺少 build 字段"))
+            throw DecodingError.keyNotFound(CodingKeys.build, .init(codingPath: c.codingPath, debugDescription: "缺少有效的 build 字段"))
         }
         let uuidVal = (try c.decode(String.self, forKey: .unityUUID))
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        let revVal = (try? c.decode(String.self, forKey: .revision)) ?? "manual-\(versionVal)-b\(buildVal)"
-        let nameVal = (try? c.decode(String.self, forKey: .name)) ?? "明日方舟 \(versionVal) (build \(buildVal))"
-        let idVal = (try? c.decode(String.self, forKey: .id)) ?? "\(bundleIDVal)-\(versionVal)-b\(buildVal)-\(uuidVal.prefix(8))"
+
+        let revVal: String
+        if c.contains(.revision), (try? c.decodeNil(forKey: .revision)) != true {
+            revVal = try c.decode(String.self, forKey: .revision)
+        } else {
+            revVal = "manual-\(versionVal)-b\(buildVal)"
+        }
+
+        let nameVal: String
+        if c.contains(.name), (try? c.decodeNil(forKey: .name)) != true {
+            nameVal = try c.decode(String.self, forKey: .name)
+        } else {
+            nameVal = "明日方舟 \(versionVal) (build \(buildVal))"
+        }
+
+        let idVal: String
+        if c.contains(.id), (try? c.decodeNil(forKey: .id)) != true {
+            idVal = try c.decode(String.self, forKey: .id)
+        } else {
+            idVal = "\(bundleIDVal)-\(versionVal)-b\(buildVal)-\(uuidVal.prefix(8))"
+        }
 
         var textSizeVal: UInt64?
-        if c.contains(.unityTextSize) {
+        if c.contains(.unityTextSize), (try? c.decodeNil(forKey: .unityTextSize)) != true {
             if let u = try? c.decode(UInt64.self, forKey: .unityTextSize) {
                 textSizeVal = u
             } else if let s = try? c.decode(String.self, forKey: .unityTextSize) {
-                textSizeVal = IL2CPPOffsetSet.parseHexOrDecimal(s)
+                let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty {
+                    textSizeVal = nil
+                } else if let parsed = IL2CPPOffsetSet.parseHexOrDecimal(trimmed) {
+                    textSizeVal = parsed
+                } else {
+                    throw DecodingError.dataCorruptedError(
+                        forKey: .unityTextSize,
+                        in: c,
+                        debugDescription: "unityTextSize 必须为整数或 0x 十六进制字符串"
+                    )
+                }
+            } else {
+                throw DecodingError.typeMismatch(
+                    String.self,
+                    .init(codingPath: c.codingPath + [CodingKeys.unityTextSize], debugDescription: "unityTextSize 类型无效")
+                )
             }
         }
-        let textSHAVal = (try? c.decode(String.self, forKey: .unityTextSHA256))?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
+
+        let textSHAVal: String?
+        if c.contains(.unityTextSHA256), (try? c.decodeNil(forKey: .unityTextSHA256)) != true {
+            textSHAVal = try c.decode(String.self, forKey: .unityTextSHA256)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+        } else {
+            textSHAVal = nil
+        }
+
         let offsetsVal = try c.decode(IL2CPPOffsetSet.self, forKey: .il2cppOffsets)
-        let notesVal = try? c.decode(String.self, forKey: .notes)
-        let importedVal = try? c.decode(Date.self, forKey: .importedAt)
+        let notesVal = try c.decodeIfPresent(String.self, forKey: .notes)
+        let importedVal = try c.decodeIfPresent(Date.self, forKey: .importedAt)
 
         self.schema = schemaVal
         self.id = idVal
@@ -338,9 +392,16 @@ public struct RuntimeOffsetProfile: Sendable, Hashable, Codable, Identifiable {
     public static func decode(from data: Data) throws -> RuntimeOffsetProfile {
         let jsonDecoder = JSONDecoder()
         jsonDecoder.dateDecodingStrategy = .iso8601
-        if let parsed = try? jsonDecoder.decode(RuntimeOffsetProfile.self, from: data) {
+
+        let jsonError: Error
+        do {
+            let parsed = try jsonDecoder.decode(RuntimeOffsetProfile.self, from: data)
             try parsed.validate()
             return parsed
+        } catch let patchError as PatchError {
+            throw patchError
+        } catch {
+            jsonError = error
         }
 
         // Try standard PropertyList (XML or binary `ABRuntimeProfile.plist`).
@@ -351,15 +412,33 @@ public struct RuntimeOffsetProfile: Sendable, Hashable, Codable, Identifiable {
             return parsed
         }
 
-        // Re-run JSON decoding to surface an actionable parse error message.
-        do {
-            let parsed = try jsonDecoder.decode(RuntimeOffsetProfile.self, from: data)
-            try parsed.validate()
-            return parsed
-        } catch let patchError as PatchError {
-            throw patchError
-        } catch {
-            throw PatchError.invalidCustomProfile("配置文件既不是有效的 JSON 也不是有效的 Plist：\(error.localizedDescription)")
+        throw PatchError.invalidCustomProfile(formatDecodingError(jsonError))
+    }
+
+    private static func formatDecodingError(_ error: Error) -> String {
+        guard let decodingError = error as? DecodingError else {
+            return "配置文件既不是有效的 JSON 也不是有效的 Plist：\(error.localizedDescription)"
+        }
+        func pathString(_ path: [CodingKey]) -> String {
+            path.map(\.stringValue).joined(separator: ".")
+        }
+        switch decodingError {
+        case .keyNotFound(let key, let ctx):
+            let full = pathString(ctx.codingPath + [key])
+            return "JSON 缺少必需字段：\(full)"
+        case .typeMismatch(_, let ctx):
+            let full = pathString(ctx.codingPath)
+            return full.isEmpty ? "JSON 顶层结构类型无效" : "JSON 字段「\(full)」类型不匹配：\(ctx.debugDescription)"
+        case .valueNotFound(_, let ctx):
+            let full = pathString(ctx.codingPath)
+            return "JSON 字段「\(full)」不能为空"
+        case .dataCorrupted(let ctx):
+            let full = pathString(ctx.codingPath)
+            return full.isEmpty
+                ? "配置文件既不是有效的 JSON 也不是有效的 Plist（\(ctx.debugDescription)）"
+                : "JSON 字段「\(full)」格式无效：\(ctx.debugDescription)"
+        @unknown default:
+            return "配置文件解析失败：\(decodingError.localizedDescription)"
         }
     }
 
@@ -461,6 +540,37 @@ public struct RuntimeOffsetProfile: Sendable, Hashable, Codable, Identifiable {
         try il2cppOffsets.validateRequiredNonZero()
     }
 
+    /// Encodes a clean human-readable JSON file (with `0x` hex offsets) suitable for sharing and re-importing.
+    public func encodeToPrettyJSONData() throws -> Data {
+        var root: [String: Any] = [
+            "schema": schema,
+            "name": name,
+            "revision": revision,
+            "bundleID": bundleID,
+            "version": version,
+            "build": build,
+            "unityUUID": unityUUID.lowercased(),
+            "il2cppOffsets": il2cppOffsets.toPlistDictionary(),
+        ]
+        if let size = unityTextSize, let sha = unityTextSHA256, size > 0, !sha.isEmpty {
+            root["unityTextSize"] = IL2CPPOffsetSet.hexString(size)
+            root["unityTextSHA256"] = sha.lowercased()
+        }
+        if let notes, !notes.isEmpty {
+            root["notes"] = notes
+        }
+        do {
+            return try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+        } catch {
+            throw PatchError.invalidPatchedMetadata("生成 JSON 适配配置失败：\(error.localizedDescription)")
+        }
+    }
+
+    public func encodeToPrettyJSONString() throws -> String {
+        let data = try encodeToPrettyJSONData()
+        return String(decoding: data, as: UTF8.self)
+    }
+
     /// Encodes the exact binary `ABRuntimeProfile.plist` format consumed by `ABRuntime.m` & `ABHooks.m`.
     /// Always explicitly writes `unityTextSize` (`0x0` when omitted) and `unityTextSHA256` (`""` when omitted)
     /// so the bridge never inherits built-in 2.7.91 defaults.
@@ -558,22 +668,22 @@ public enum AdaptationMode: String, Sendable, Hashable, Codable {
     public var badgeTitle: String {
         switch self {
         case .builtInVerified:
-            return "内置已验证"
+            return "内置适配"
         case .manualCustomProfile:
-            return "手工配置"
+            return "导入配置"
         case .autoResolved:
-            return "自动定位"
+            return "自动适配"
         }
     }
 
     public var detailTitle: String {
         switch self {
         case .builtInVerified:
-            return "内置已验证基准 (2.7.91)"
+            return "内置已验证版本 (2.7.91)"
         case .manualCustomProfile:
-            return "手工导入适配配置"
+            return "手工导入配置文件"
         case .autoResolved:
-            return "本机自动定位 (IL2CPP)"
+            return "本机自动适配"
         }
     }
 }

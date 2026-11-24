@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 /// Presents iOS's `UIDocumentPickerViewController` directly via UIKit modal presentation
 /// from the active window's top-most `UIViewController` (never embedded inside a SwiftUI `.sheet`),
-/// ensuring reliable delegate callbacks and dismissal on iOS 27.
+/// ensuring reliable delegate callbacks and dismissal across iOS 16–27.
 @MainActor
 final class SystemDocumentPickerPresenter: NSObject, UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate {
     private enum Mode {
@@ -19,7 +19,9 @@ final class SystemDocumentPickerPresenter: NSObject, UIDocumentPickerDelegate, U
         onPresentationFailure: @escaping (String) -> Void
     ) {
         // `com.apple.itunes.ipa` conforms to `public.data` (and NOT `public.zip-archive`).
-        // Passing `[.data]` plus the system `.ipa` UTType enables every `.ipa` file while keeping folders navigable.
+        // Passing `[.data]` plus the system `.ipa` UTType with `asCopy: true` guarantees `.ipa` files
+        // remain selectable across all iOS FileProviders (whereas `asCopy: false` grays out `.ipa` files
+        // in providers that disallow in-place opening; same-volume APFS copies use zero-block CoW clones).
         var types: [UTType] = [.data]
         if let ipaType = UTType(filenameExtension: "ipa"), !types.contains(ipaType) {
             types.insert(ipaType, at: 0)
@@ -53,8 +55,13 @@ final class SystemDocumentPickerPresenter: NSObject, UIDocumentPickerDelegate, U
         onCancel: @escaping () -> Void,
         onPresentationFailure: @escaping (String) -> Void
     ) {
-        guard let presenter = Self.topViewController() else {
-            onPresentationFailure("无法找到当前活动窗口以弹出系统文件选择器。")
+        guard activeMode == nil else {
+            return
+        }
+        guard let presenter = Self.topViewController(),
+              !presenter.isBeingPresented,
+              !presenter.isBeingDismissed else {
+            onPresentationFailure("当前窗口正在切换，请稍后再试打开系统文件选择器。")
             return
         }
 
@@ -72,8 +79,13 @@ final class SystemDocumentPickerPresenter: NSObject, UIDocumentPickerDelegate, U
         fileURL: URL,
         onComplete: @escaping (SystemExportResult) -> Void
     ) {
-        guard let presenter = Self.topViewController() else {
-            onComplete(.failed("无法找到当前活动窗口以弹出系统文件导出器。"))
+        guard activeMode == nil else {
+            return
+        }
+        guard let presenter = Self.topViewController(),
+              !presenter.isBeingPresented,
+              !presenter.isBeingDismissed else {
+            onComplete(.failed("当前窗口正在切换，请稍后再试打开系统文件导出器。"))
             return
         }
 

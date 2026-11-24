@@ -1,9 +1,108 @@
+import CryptoKit
 import Foundation
 import IPAPatcherCore
 import Zip64Kit
 
-/// Generates valid synthetic Mach-O binaries and IPAs for unit & parity testing without requiring a real proprietary IPA.
+/// Generates valid synthetic Mach-O binaries, kits, and IPAs for unit & parity testing without requiring
+/// a real proprietary IPA or closed-source `payload.zip`.
 enum SyntheticIPABuilder {
+    struct SyntheticKitContext {
+        let engine: IPAPatcherEngine
+        let profile: TrustedPatchProfile
+        let verifiedKits: [VerifiedPatchKit]
+        let manifest: PatchKitManifest
+    }
+
+    /// Creates a self-contained synthetic patch kit on disk (with valid arm64 Mach-O dylibs,
+    /// B-server icon assets, nested bundle resources, and `ABRuntimeProfile.plist`) so the full
+    /// test suite runs cleanly on a fresh open-source clone without closed-source `payload.zip`.
+    static func createSyntheticKitEngine(in directory: URL) throws -> SyntheticKitContext {
+        let kitDir = directory.appendingPathComponent("synthetic-kit-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: kitDir, withIntermediateDirectories: true)
+
+        let appRoot = "Payload/Arknights.app/"
+        let bridgeData = makeThinMachO64(uuidString: "aaaaaaaa-1111-2222-3333-444444444444")
+        let carrierData = makeThinMachO64(uuidString: "bbbbbbbb-1111-2222-3333-444444444444")
+        let rtProfile = RuntimeOffsetProfile(
+            name: "Synthetic 2.7.91",
+            revision: BuiltInKitRepository.activeRevision,
+            version: BuiltInKitRepository.activeVersion,
+            build: BuiltInKitRepository.activeBuild,
+            unityUUID: "386e1e29-f538-38c5-84d3-40427d3e6eb1",
+            unityTextSize: nil,
+            unityTextSHA256: nil,
+            il2cppOffsets: .builtIn2791
+        )
+        let rtPlistData = try rtProfile.encodeToRuntimeProfilePlistData()
+
+        let entries: [String: Data] = [
+            appRoot + "Frameworks/ABLoginBridge.dylib": bridgeData,
+            appRoot + "Frameworks/ABSDKCarrier.dylib": carrierData,
+            appRoot + "ABRuntimeProfile.plist": rtPlistData,
+            appRoot + "ABAppIcon60x60@2x.png": Data([0x89, 0x50, 0x4E, 0x47, 0x01, 0x02]),
+            appRoot + "ABAppIcon60x60@3x.png": Data([0x89, 0x50, 0x4E, 0x47, 0x03, 0x04]),
+            appRoot + "BLImages.bundle/bg.png": Data([0x89, 0x50, 0x4E, 0x47, 0x05, 0x06]),
+            appRoot + "GSCSDKResources.bundle/Localizable.strings": Data("\"ok\" = \"ok\";\n".utf8),
+        ]
+
+        let payloadURL = kitDir.appendingPathComponent("payload.zip")
+        let writer = try Zip64Writer(url: payloadURL)
+        var payloadEntriesSHA: [String: String] = [:]
+        for (name, data) in entries.sorted(by: { $0.key < $1.key }) {
+            let mode: UInt32 = name.hasSuffix(".dylib") ? 0o100755 : 0o100644
+            try writer.writeDeflatedEntry(name: name, data: data, externalAttributes: mode << 16)
+            payloadEntriesSHA[name] = SHA256.hash(data: data).hexString
+        }
+        try writer.finish()
+
+        let payloadSHA = try FileHasher.sha256Hex(of: payloadURL)
+        let hostBinaries: [String: [String: String]] = [
+            appRoot + "Arknights": ["uuid": "c0c6e046-81ae-3987-817a-0f1530ab074f"],
+            appRoot + "Frameworks/OpenSSL.framework/OpenSSL": ["uuid": "3bec285b-b10d-3071-b247-fc159dc7a070"],
+            appRoot + "Frameworks/SSZipArchive.framework/SSZipArchive": ["uuid": "c1e2fe1f-2230-324a-81b4-b9b24b6a7dbf"],
+            appRoot + "Frameworks/UnityFramework.framework/UnityFramework": ["uuid": "386e1e29-f538-38c5-84d3-40427d3e6eb1"],
+            appRoot + "Frameworks/hpatchz_dynamic.framework/hpatchz_dynamic": ["uuid": "6eaca2b8-c24e-3612-81a2-531ee8bf7040"],
+            appRoot + "Frameworks/tersafe2.framework/tersafe2": ["uuid": "07b63fe7-0c49-3607-a978-d47fa3dcaa56"],
+        ]
+
+        let manifestObj: [String: Any] = [
+            "schema": 1,
+            "revision": BuiltInKitRepository.activeRevision,
+            "bundle_id": "com.hypergryph.arknights",
+            "version": BuiltInKitRepository.activeVersion,
+            "build": BuiltInKitRepository.activeBuild,
+            "app_root": appRoot,
+            "input_hash_allowlist_used": false,
+            "host_binaries": hostBinaries,
+            "binary_patches": [String: Any](),
+            "dynamic_dylib_injection": [
+                "target_binary": appRoot + "Frameworks/UnityFramework.framework/UnityFramework",
+                "dylib_load_path": "@executable_path/Frameworks/ABLoginBridge.dylib",
+            ],
+            "payload_sha256": payloadSHA,
+            "payload_entries": payloadEntriesSHA,
+        ]
+        let manifestData = try JSONSerialization.data(withJSONObject: manifestObj, options: [.sortedKeys])
+        let manifestURL = kitDir.appendingPathComponent("manifest.json")
+        try manifestData.write(to: manifestURL)
+        let manifestSHA = SHA256.hash(data: manifestData).hexString
+
+        let profile = BuiltInKitRepository.externalProfile(
+            kitDirectory: kitDir,
+            revision: BuiltInKitRepository.activeRevision,
+            version: BuiltInKitRepository.activeVersion,
+            build: BuiltInKitRepository.activeBuild,
+            lockedManifestSHA256: manifestSHA
+        )
+        let engine = IPAPatcherEngine(profiles: [profile])
+        let verifiedKits = try engine.verifyConfiguredKits()
+        return SyntheticKitContext(
+            engine: engine,
+            profile: profile,
+            verifiedKits: verifiedKits,
+            manifest: verifiedKits[0].manifest
+        )
+    }
     struct Configuration {
         var bundleID: String = "com.hypergryph.arknights"
         var version: String = "2.7.91"

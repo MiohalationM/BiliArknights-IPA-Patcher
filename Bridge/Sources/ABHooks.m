@@ -6,7 +6,7 @@
 #import <CommonCrypto/CommonDigest.h>
 
 ABLoginCoordinator *ABCurrent;
-bool ABUseBili = true, ABInGame = false;
+bool ABUseBili = true, ABInGame = false, ABEnteringServer = false;
 ABSceneGate ABScene;
 void (*ABHGLogin)(id, SEL), (*ABHGLogout)(id, SEL);
 void (*ABHGLoginParams)(id, SEL, id);
@@ -22,6 +22,7 @@ BOOL ABError(NSError **error, NSString *message) {
 // Verifies the UnityFramework image against the active ABRuntimeProfile (UUID and optional __TEXT.__text hash).
 BOOL ABCheckUnityImage(uintptr_t base) {
     const ABRuntimeOffsetProfile *profile = ABActiveRuntimeProfile();
+    if (!profile->valid) return NO;
     const struct mach_header_64 *h = (void *)base;
     if (!h || h->magic != MH_MAGIC_64 || h->cputype != CPU_TYPE_ARM64) return NO;
     Dl_info image = {0};
@@ -84,7 +85,9 @@ BOOL ABCheckUnityImage(uintptr_t base) {
         self.logoutReceiver = nil;
         if (ABUseBili) {
             ABInGame = false;
+            ABClearEnteringServer();
             [target eventUserLogout:@{}];
+            ABNotifyUIStateChanged();
         }
     });
 }
@@ -100,12 +103,14 @@ BOOL ABCheckUnityImage(uintptr_t base) {
     self.receiver = nil;
     self.logoutReceiver = receiver;
     self.state = @"logging-out";
+    ABNotifyUIStateChanged();
     @try {
         if (ABUseBili) [(id<ABObservedGSSDK>)self.sdk logout];
         else ABHGLogout(receiver, NSSelectorFromString(@"logout"));
     } @catch (id exception) {
         self.state = @"ready";
         self.logoutReceiver = nil;
+        ABNotifyUIStateChanged();
     }
 }
 
@@ -173,6 +178,14 @@ static void Result(id obj, SEL sel, int code, id data) {
         ABCurrent.receiver = nil;
         ABCurrent.state = @"official-result-forwarded";
     }
+    BOOL hasLoginCode = [data isKindOfClass:NSString.class] &&
+        [[(NSString *)data stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] length] > 0;
+    if (hasLoginCode) {
+        ABMarkEnteringServer();
+    } else {
+        ABClearEnteringServer();
+        ABNotifyUIStateChanged();
+    }
     HGResult(obj, sel, code, data);
 }
 static void LoggedOut(id obj, SEL sel, int code) {
@@ -183,6 +196,8 @@ static void LoggedOut(id obj, SEL sel, int code) {
     ABCurrent.logoutReceiver = nil;
     ABCurrent.state = @"ready";
     ABInGame = false;
+    ABClearEnteringServer();
+    ABNotifyUIStateChanged();
     HGLoggedOut(obj, sel, code);
 }
 static void Pay(id obj, SEL sel, id params) {
@@ -229,10 +244,13 @@ static BOOL Signature(Method method, const char *ret, NSArray<NSString *> *types
 BOOL ABEnableBLoginHooks(NSError **error) {
     if (!NSThread.isMainThread || !ABCurrent) return ABError(error, @"登录组件尚未准备");
     if (ABCurrent.hooksEnabled) return YES;
+    if (!ABRuntimeProfileIsValid()) {
+        return ABError(error, @"ABRuntimeProfile.plist 偏移配置缺失或无效，已拒绝接管");
+    }
 
     NSString *expectedVer = ABExpectedHostVersion();
     NSString *expectedBld = ABExpectedHostBuild();
-    NSString *actualVer = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
+    NSString *actualVer = [[NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] description];
     NSString *actualBld = [[NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleVersion"] description];
     if (![actualVer isEqual:expectedVer] || ![actualBld isEqual:expectedBld]) {
         return ABError(error, [NSString stringWithFormat:@"此配置仅适配明日方舟 %@（%@），当前为 %@（%@）",

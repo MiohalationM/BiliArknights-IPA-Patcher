@@ -1,12 +1,6 @@
 // Recovered methods in a category; the reconstructed primary class and logout
 // methods are provided by ../bridge/ABHooks.m.
-#import "ABRecoveredInterfaces.h"
-#import "ABLoginResult.h"
-extern bool ABUseBili;
-extern bool ABInGame;
-extern void (*ABHGLogin)(id, SEL);
-extern void (*ABHGLoginParams)(id, SEL, id);
-
+#import "ABBridge.h"
 
 @interface ABLoginCoordinator (RecoveredCallbacks)
 @end
@@ -31,11 +25,13 @@ extern void (*ABHGLoginParams)(id, SEL, id);
         return;
     }
     ABInGame = false;
+    ABClearEnteringServer();
     NSUInteger generation = ABAttemptBegin(&self->gate);
     self.callbackGeneration = generation;
     self.receiver = receiver;
     self.pluginReceiver = receiver;
     self.state = ABUseBili ? @"bili-login-pending" : @"official-login-pending";
+    ABNotifyUIStateChanged();
     @try {
         if (ABUseBili) {
             [self.sdk showLogin];
@@ -59,6 +55,8 @@ extern void (*ABHGLoginParams)(id, SEL, id);
     id<ABObservedU8> target = self.receiver;
     self.receiver = nil;
     self.state = @"ready";
+    ABClearEnteringServer();
+    ABNotifyUIStateChanged();
     [target eventUserLoginFailed:message];
 }
 
@@ -79,6 +77,8 @@ extern void (*ABHGLoginParams)(id, SEL, id);
         id<ABObservedU8> target = self.receiver;
         self.receiver = nil;
         self.state = @"sdk-result-forwarded";
+        // Hide the channel button immediately as soon as auth succeeds and server entry starts.
+        ABMarkEnteringServer();
         [target eventUserLogin:result];
     });
 }

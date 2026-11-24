@@ -13,6 +13,7 @@ public enum ZipConstants {
     public static let methodStored: UInt16 = 0
     public static let methodDeflated: UInt16 = 8
 
+    public static let flagEncrypted: UInt16 = 0x0001
     public static let flagDataDescriptor: UInt16 = 0x0008
     public static let flagUTF8Encoding: UInt16 = 0x0800
 
@@ -38,6 +39,10 @@ public struct ZipEntry: Sendable, Hashable {
 
     public var isDirectory: Bool {
         name.hasSuffix("/")
+    }
+
+    public var isEncrypted: Bool {
+        (generalPurposeBitFlag & ZipConstants.flagEncrypted) != 0
     }
 
     public init(

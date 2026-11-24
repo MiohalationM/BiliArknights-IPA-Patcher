@@ -67,6 +67,17 @@ public enum MachODylibInjector {
         into raw: Data,
         binaryPath: String
     ) throws -> (data: Data, report: InjectionReport) {
+        var copy = raw
+        let report = try injectInPlace(dylibLoadPath: dylibLoadPath, into: &copy, binaryPath: binaryPath)
+        return (copy, report)
+    }
+
+    /// In-place variant that avoids duplicating a ~200 MB Mach-O buffer when the caller holds unique ownership of `raw`.
+    public static func injectInPlace(
+        dylibLoadPath: String,
+        into raw: inout Data,
+        binaryPath: String
+    ) throws -> InjectionReport {
         guard raw.count >= 32 else {
             throw PatchError.machOInjectionFailed(binaryPath: binaryPath, reason: "Mach-O 头部不足 32 字节")
         }
@@ -165,26 +176,24 @@ public enum MachODylibInjector {
         command.append(contentsOf: pathUTF8)
         command.append(contentsOf: repeatElement(UInt8(0), count: cmdSize - 24 - pathUTF8.count))
 
-        var edited = raw
         let newNcmds = ncmds + 1
         let newSizeofcmds = sizeofcmds + UInt32(cmdSize)
         var headerPatch = Data()
         appendUInt32LE(&headerPatch, newNcmds)
         appendUInt32LE(&headerPatch, newSizeofcmds)
 
-        let hStart = edited.startIndex + 16
-        edited.replaceSubrange(hStart..<(hStart + 8), with: headerPatch)
-        let cStart = edited.startIndex + insertOffset
-        edited.replaceSubrange(cStart..<(cStart + cmdSize), with: command)
+        let hStart = raw.startIndex + 16
+        raw.replaceSubrange(hStart..<(hStart + 8), with: headerPatch)
+        let cStart = raw.startIndex + insertOffset
+        raw.replaceSubrange(cStart..<(cStart + cmdSize), with: command)
 
-        let report = InjectionReport(
+        return InjectionReport(
             insertOffset: insertOffset,
             commandSize: cmdSize,
             previousLoadCommandCount: ncmds,
             newLoadCommandCount: newNcmds,
             dylibLoadPath: dylibLoadPath
         )
-        return (edited, report)
     }
 
     private static func readUInt32LE(_ data: Data, at offset: Int) -> UInt32 {

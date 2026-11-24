@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import IPAPatcherCore
 
@@ -6,11 +7,21 @@ import IPAPatcherCore
 /// can be adapted by importing a tiny `.json` or `.plist` file without updating or reinstalling the App.
 enum CustomProfileStore {
     private static let folderName = "CustomProfiles"
+    private static let maxProfileBytes = 2 * 1024 * 1024
 
     static var rootURL: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
         return base.appendingPathComponent(folderName, isDirectory: true)
+    }
+
+    /// Generates a deterministic, collision-free filename from the full `(bundleID, version, build, unityUUID)` key.
+    static func storageFilename(for profile: RuntimeOffsetProfile) -> String {
+        let key = "\(profile.bundleID.lowercased())|\(profile.version)|\(profile.build)|\(profile.unityUUID.lowercased())"
+        let digest = SHA256.hash(data: Data(key.utf8)).hexString.prefix(16)
+        let safeVer = PatchApplicator.sanitizeFilenameToken(profile.version, fallback: "v").prefix(12)
+        let safeBuild = PatchApplicator.sanitizeFilenameToken(profile.build, fallback: "0").prefix(8)
+        return "profile-\(safeVer)-b\(safeBuild)-\(digest).json"
     }
 
     static func loadAll() -> [RuntimeOffsetProfile] {
@@ -53,6 +64,12 @@ enum CustomProfileStore {
             TempWorkspaceManager.cleanupImportedInboxCopyIfNeeded(sourceURL)
         }
 
+        // Check file size BEFORE reading into memory so selecting a multi-GB IPA by mistake never spikes RAM.
+        if let fileSize = (try? sourceURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
+           fileSize > maxProfileBytes {
+            throw PatchError.invalidCustomProfile("配置文件体积过大（超过 2 MB），请确认选择的是 .json 或 .plist 适配配置文件。")
+        }
+
         let data: Data
         do {
             data = try Data(contentsOf: sourceURL)
@@ -60,7 +77,7 @@ enum CustomProfileStore {
             throw PatchError.fileAccessDenied("无法读取配置文件：\(error.localizedDescription)")
         }
 
-        guard data.count <= 2 * 1024 * 1024 else {
+        guard data.count <= maxProfileBytes else {
             throw PatchError.invalidCustomProfile("配置文件体积过大（超过 2 MB），请确认选择的是 .json 或 .plist 适配配置文件。")
         }
 
@@ -77,11 +94,28 @@ enum CustomProfileStore {
         try fm.createDirectory(at: root, withIntermediateDirectories: true)
         excludeFromBackup(root)
 
-        // Replace any previous profile targeting the exact same (version, build, unityUUID).
-        for existing in loadAll() where existing.version == profile.version
-            && existing.build == profile.build
-            && existing.unityUUID.lowercased() == profile.unityUUID.lowercased() {
-            try? delete(profileID: existing.id)
+        let destURL = root.appendingPathComponent(storageFilename(for: profile))
+
+        // Discover any superseded files targeting the exact same (bundleID, version, build, unityUUID)
+        // BEFORE writing, but delete them ONLY AFTER the new file is atomically committed on disk.
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let existingFiles = (try? fm.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        var supersededFiles: [URL] = []
+        for file in existingFiles where file.pathExtension.lowercased() == "json"
+            && file.standardizedFileURL != destURL.standardizedFileURL {
+            if let data = try? Data(contentsOf: file),
+               let existing = try? decoder.decode(RuntimeOffsetProfile.self, from: data),
+               existing.bundleID == profile.bundleID,
+               existing.version == profile.version,
+               existing.build == profile.build,
+               existing.unityUUID.lowercased() == profile.unityUUID.lowercased() {
+                supersededFiles.append(file)
+            }
         }
 
         let encoder = JSONEncoder()
@@ -89,39 +123,26 @@ enum CustomProfileStore {
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(profile)
 
-        let safeName = sanitizedFilename(profile.id) + ".json"
-        let destURL = root.appendingPathComponent(safeName)
         try data.write(to: destURL, options: [.atomic])
         excludeFromBackup(destURL)
+
+        for oldFile in supersededFiles {
+            try? fm.removeItem(at: oldFile)
+        }
     }
 
     static func delete(profileID: String) throws {
         let fm = FileManager.default
-        let safeName = sanitizedFilename(profileID) + ".json"
-        let directURL = rootURL.appendingPathComponent(safeName)
-        if fm.fileExists(atPath: directURL.path) {
-            try fm.removeItem(at: directURL)
-            return
-        }
-
-        // Fallback scan in case filename differed.
         guard let files = try? fm.contentsOfDirectory(at: rootURL, includingPropertiesForKeys: nil) else { return }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        for file in files {
+        for file in files where file.pathExtension.lowercased() == "json" {
             if let data = try? Data(contentsOf: file),
                let p = try? decoder.decode(RuntimeOffsetProfile.self, from: data),
                p.id == profileID {
                 try fm.removeItem(at: file)
             }
         }
-    }
-
-    private static func sanitizedFilename(_ raw: String) -> String {
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_."))
-        let cleaned = raw.unicodeScalars.map { allowed.contains($0) ? Character($0) : "_" }
-        let str = String(cleaned)
-        return str.isEmpty ? UUID().uuidString : str
     }
 
     private static func excludeFromBackup(_ url: URL) {

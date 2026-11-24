@@ -44,3 +44,4 @@
 // Implementations for the complete reconstructed build live in ../bridge/ABRuntime.m.
 FOUNDATION_EXPORT BOOL ABApplyChannel(BOOL bili, BOOL clearAuth, NSError **error);
 FOUNDATION_EXPORT BOOL ABManagedChannelReady(void);
+FOUNDATION_EXPORT BOOL ABChannelPreconditionsReady(void);

@@ -20,26 +20,34 @@ final class PatchApplicatorTests: XCTestCase {
     }
 
     func testEndToEndDynamicInjectionCarrierKitAndBaselineUnityParity() throws {
-        let engine = try IPAPatcherEngine.builtInDefault()
-        let kits = try engine.verifyConfiguredKits()
-        let manifest = kits[0].manifest
+        let kitCtx = try SyntheticIPABuilder.createSyntheticKitEngine(in: tempDir)
+        let engine = kitCtx.engine
+        let loadedKits = try engine.loadAndVerifyConfiguredKits()
+        let kits = loadedKits.map(\.verifiedKit)
+        let manifest = kitCtx.manifest
 
         let inputIPA = tempDir.appendingPathComponent("arknights-2.7.91-synthetic.ipa")
         try SyntheticIPABuilder.createSyntheticIPA(at: inputIPA, manifest: manifest)
         let originalInputSHA = try FileHasher.sha256Hex(of: inputIPA)
 
-        let host = try engine.inspectHost(at: inputIPA)
-        let matchResult = try engine.matchCompatibility(for: host, verifiedKits: kits)
+        let session = try engine.openInputSession(at: inputIPA)
+        let host = try engine.inspectHost(session: session)
+        let matchResult = try engine.matchCompatibility(for: host, verifiedKits: kits, inputSession: session)
         guard case .matched(let config) = matchResult else {
-            return XCTFail("Synthetic IPA should match built-in carrier kit")
+            return XCTFail("Synthetic IPA should match synthetic carrier kit")
         }
 
         let swiftOutDir = tempDir.appendingPathComponent("swift-out", isDirectory: true)
         let result = try engine.applyPatch(
             configuration: config,
             sourceIPAURL: inputIPA,
-            workingDirectory: swiftOutDir
+            workingDirectory: swiftOutDir,
+            inputSession: session,
+            preloadedKit: loadedKits.first
         )
+
+        // Cached UnityFramework buffer must be released after patching.
+        XCTAssertNil(session.cachedUnityFrameworkData(at: "Payload/Arknights.app/Frameworks/UnityFramework.framework/UnityFramework"))
 
         // Original IPA untouched and zero `.partial` files left behind.
         XCTAssertEqual(try FileHasher.sha256Hex(of: inputIPA), originalInputSHA)
@@ -60,6 +68,10 @@ final class PatchApplicatorTests: XCTestCase {
 
         let swiftReader = try Zip64Reader(url: result.outputURL)
 
+        // Verify explicit parent directory entries were emitted for newly added nested bundles.
+        XCTAssertNotNil(swiftReader.entry(named: "Payload/Arknights.app/BLImages.bundle/"))
+        XCTAssertNotNil(swiftReader.entry(named: "Payload/Arknights.app/GSCSDKResources.bundle/"))
+
         // Verify both added dylibs have executable Unix permissions `0o100755`.
         for dylib in [
             "Payload/Arknights.app/Frameworks/ABLoginBridge.dylib",
@@ -73,16 +85,16 @@ final class PatchApplicatorTests: XCTestCase {
         let patchedPlistData = try swiftReader.readData(named: "Payload/Arknights.app/Info.plist")
         let plistObj = try PropertyListSerialization.propertyList(from: patchedPlistData, options: [], format: nil)
         let plist = try XCTUnwrap(plistObj as? [String: Any])
-        XCTAssertEqual(plist["ABPackagingRevision"] as? String, "7.5-2.7.91-bridge-carrier-r4")
+        XCTAssertEqual(plist["ABPackagingRevision"] as? String, "7.5-2.7.91-bridge-carrier-r5")
         XCTAssertEqual(plist["CFBundleShortVersionString"] as? String, "2.7.91")
         let u8 = try XCTUnwrap(plist["U8SDK"] as? [String: Any])
         XCTAssertEqual(u8["Channel"] as? Int, 2)
         XCTAssertEqual(u8["World"] as? Int, 2)
         XCTAssertEqual(u8["ChannelName"] as? String, "HG")
 
-        // Cross-check patched UnityFramework byte-for-byte against baseline `dist/patch.py`!
-        let baselineScript = "/Users/mio/biios/reverse/bridge-2.7.91/dist/patch.py"
-        if FileManager.default.fileExists(atPath: baselineScript),
+        // Optional parity check against an external baseline `patch.py` when supplied via environment variable.
+        if let baselineScript = ProcessInfo.processInfo.environment["ARKNIGHTS_BASELINE_PATCH_PY"],
+           FileManager.default.fileExists(atPath: baselineScript),
            let python311 = Self.findPython311Plus() {
             let pyOutIPA = tempDir.appendingPathComponent("python-out.ipa")
             let proc = Process()
@@ -105,9 +117,10 @@ final class PatchApplicatorTests: XCTestCase {
     }
 
     func testRejectsAlreadyInjectedIPABeforeWritingOutput() throws {
-        let engine = try IPAPatcherEngine.builtInDefault()
-        let kits = try engine.verifyConfiguredKits()
-        let manifest = kits[0].manifest
+        let kitCtx = try SyntheticIPABuilder.createSyntheticKitEngine(in: tempDir)
+        let engine = kitCtx.engine
+        let kits = kitCtx.verifiedKits
+        let manifest = kitCtx.manifest
 
         var cfg = SyntheticIPABuilder.Configuration()
         cfg.preInjectBridge = true
@@ -134,9 +147,10 @@ final class PatchApplicatorTests: XCTestCase {
     }
 
     func testRejectsNonZeroHeaderGapBeforeWritingOutput() throws {
-        let engine = try IPAPatcherEngine.builtInDefault()
-        let kits = try engine.verifyConfiguredKits()
-        let manifest = kits[0].manifest
+        let kitCtx = try SyntheticIPABuilder.createSyntheticKitEngine(in: tempDir)
+        let engine = kitCtx.engine
+        let kits = kitCtx.verifiedKits
+        let manifest = kitCtx.manifest
 
         var cfg = SyntheticIPABuilder.Configuration()
         cfg.corruptPreimage = true
@@ -161,9 +175,10 @@ final class PatchApplicatorTests: XCTestCase {
     }
 
     func testCancellationCleansUpPartialFile() async throws {
-        let engine = try IPAPatcherEngine.builtInDefault()
-        let kits = try engine.verifyConfiguredKits()
-        let manifest = kits[0].manifest
+        let kitCtx = try SyntheticIPABuilder.createSyntheticKitEngine(in: tempDir)
+        let engine = kitCtx.engine
+        let kits = kitCtx.verifiedKits
+        let manifest = kitCtx.manifest
 
         var cfg = SyntheticIPABuilder.Configuration()
         cfg.extraResourceBytes = 4 * 1024 * 1024

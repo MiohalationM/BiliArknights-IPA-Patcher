@@ -13,12 +13,14 @@
 		3136BA88E4FC10B0A94BA598 /* CustomProfileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15CDA2A6B4EF61A83A12080C /* CustomProfileStore.swift */; };
 		4AFCE094033CEC837E1D3258 /* ProfileManagerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0057A1D7F1D974C8F521357D /* ProfileManagerSheet.swift */; };
 		628413AAB8BCF95279D25BFC /* PatchSessionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2771D6B6CE07C9CA68BDB43F /* PatchSessionState.swift */; };
+		7DB13B55A3A0F076824DFC5C /* QuickGuideSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 826AB6973EBE8C79F2BBCCBE /* QuickGuideSheet.swift */; };
 		7E714D17F5CAC30C69BF285E /* PipelineProgressCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08659889F6B4B0E6BF731198 /* PipelineProgressCard.swift */; };
 		918BCB32FAE9C9EE5433FC4C /* StorageStatusCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4BF388D5EF77A4CC6242F58 /* StorageStatusCard.swift */; };
 		9A10155C26FA5292D0153277 /* PatchPipelineViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89F1ED4026F8CF9CFF2708A6 /* PatchPipelineViewModel.swift */; };
 		9E841AE1D0A2AD76191A9E59 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F15D94ABC59DCB8C6EEAE7D7 /* ContentView.swift */; };
 		B9EB4DE2F0DAA19888835339 /* IPAPatcherCore in Frameworks */ = {isa = PBXBuildFile; productRef = 4AA3F8483BD4A50CA3A6DF7D /* IPAPatcherCore */; };
 		BB355591E8E209627164ACE5 /* HostMetadataCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89D80C33F5F7FABC7C6CF628 /* HostMetadataCard.swift */; };
+		BE584C272CA6A37648D5F4FE /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0817339E77644FEE322E37C1 /* AppTheme.swift */; };
 		C51871540E362C65F7BEE759 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 813FC894F55DD8CA5E01B29C /* Assets.xcassets */; };
 		C8B991CD1716C50D131A04D0 /* MismatchListCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F70F3A342037B99A39C5920 /* MismatchListCard.swift */; };
 		CB01203BD01040DE1C67F079 /* ExportReadyCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E03EA61EE4B7EB726321832 /* ExportReadyCard.swift */; };
@@ -28,6 +30,7 @@
 
 /* Begin PBXFileReference section */
 		0057A1D7F1D974C8F521357D /* ProfileManagerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileManagerSheet.swift; sourceTree = "<group>"; };
+		0817339E77644FEE322E37C1 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
 		08659889F6B4B0E6BF731198 /* PipelineProgressCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PipelineProgressCard.swift; sourceTree = "<group>"; };
 		15CDA2A6B4EF61A83A12080C /* CustomProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomProfileStore.swift; sourceTree = "<group>"; };
 		200BF4C4857D77652EB86443 /* PatchOptionsCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PatchOptionsCard.swift; sourceTree = "<group>"; };
@@ -37,6 +40,7 @@
 		630778D4796A7FEAB06652B5 /* ArknightsPatcher.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ArknightsPatcher.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6E03EA61EE4B7EB726321832 /* ExportReadyCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportReadyCard.swift; sourceTree = "<group>"; };
 		813FC894F55DD8CA5E01B29C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		826AB6973EBE8C79F2BBCCBE /* QuickGuideSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickGuideSheet.swift; sourceTree = "<group>"; };
 		89D80C33F5F7FABC7C6CF628 /* HostMetadataCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostMetadataCard.swift; sourceTree = "<group>"; };
 		89F1ED4026F8CF9CFF2708A6 /* PatchPipelineViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PatchPipelineViewModel.swift; sourceTree = "<group>"; };
 		8F70F3A342037B99A39C5920 /* MismatchListCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MismatchListCard.swift; sourceTree = "<group>"; };
@@ -89,6 +93,7 @@
 				200BF4C4857D77652EB86443 /* PatchOptionsCard.swift */,
 				08659889F6B4B0E6BF731198 /* PipelineProgressCard.swift */,
 				0057A1D7F1D974C8F521357D /* ProfileManagerSheet.swift */,
+				826AB6973EBE8C79F2BBCCBE /* QuickGuideSheet.swift */,
 				A4BF388D5EF77A4CC6242F58 /* StorageStatusCard.swift */,
 			);
 			path = Components;
@@ -107,6 +112,7 @@
 			children = (
 				F15D94ABC59DCB8C6EEAE7D7 /* ContentView.swift */,
 				1E9553E1F195C335087AB064 /* Components */,
+				B332ACF815955BF0EF842C03 /* Design */,
 				20155E755570D7031E99597F /* Helpers */,
 			);
 			path = Views;
@@ -147,6 +153,14 @@
 				2771D6B6CE07C9CA68BDB43F /* PatchSessionState.swift */,
 			);
 			path = Models;
+			sourceTree = "<group>";
+		};
+		B332ACF815955BF0EF842C03 /* Design */ = {
+			isa = PBXGroup;
+			children = (
+				0817339E77644FEE322E37C1 /* AppTheme.swift */,
+			);
+			path = Design;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -225,6 +239,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BE584C272CA6A37648D5F4FE /* AppTheme.swift in Sources */,
 				E9738C3B9A0C533B630DC209 /* ArknightsPatcherApp.swift in Sources */,
 				9E841AE1D0A2AD76191A9E59 /* ContentView.swift in Sources */,
 				3136BA88E4FC10B0A94BA598 /* CustomProfileStore.swift in Sources */,
@@ -237,6 +252,7 @@
 				628413AAB8BCF95279D25BFC /* PatchSessionState.swift in Sources */,
 				7E714D17F5CAC30C69BF285E /* PipelineProgressCard.swift in Sources */,
 				4AFCE094033CEC837E1D3258 /* ProfileManagerSheet.swift in Sources */,
+				7DB13B55A3A0F076824DFC5C /* QuickGuideSheet.swift in Sources */,
 				918BCB32FAE9C9EE5433FC4C /* StorageStatusCard.swift in Sources */,
 				2E1567ADC9589E4FB89F4BB0 /* SystemDocumentExporter.swift in Sources */,
 				1F0A9268CD405B44025D421D /* TempWorkspaceManager.swift in Sources */,
@@ -299,7 +315,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -308,7 +324,7 @@
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 6.0;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
@@ -359,7 +375,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -367,7 +383,7 @@
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 6.0;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
@@ -377,16 +393,16 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 13;
+				CURRENT_PROJECT_VERSION = 15;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.biios.arknights-patcher";
 				PRODUCT_NAME = ArknightsPatcher;
 				SDKROOT = iphoneos;
@@ -401,16 +417,16 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				CURRENT_PROJECT_VERSION = 13;
+				CURRENT_PROJECT_VERSION = 15;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = App/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.0;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.biios.arknights-patcher";
 				PRODUCT_NAME = ArknightsPatcher;
 				SDKROOT = iphoneos;

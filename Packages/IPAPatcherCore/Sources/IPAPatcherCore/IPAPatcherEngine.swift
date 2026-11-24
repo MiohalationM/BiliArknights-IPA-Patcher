@@ -10,22 +10,19 @@ public struct IPAPatcherEngine: Sendable {
     public let kitVerifier: KitIntegrityVerifier
     public let matcher: CompatibilityMatcher
     public let applicator: PatchApplicator
-    public let featureExtractor: any HostBinaryFeatureExtractor
 
     public init(
         profiles: [TrustedPatchProfile],
         inspector: HostInspector = HostInspector(),
         kitVerifier: KitIntegrityVerifier = KitIntegrityVerifier(),
         matcher: CompatibilityMatcher = CompatibilityMatcher(),
-        applicator: PatchApplicator = PatchApplicator(),
-        featureExtractor: any HostBinaryFeatureExtractor = ExactMatchHostFeatureExtractor()
+        applicator: PatchApplicator = PatchApplicator()
     ) {
         self.profiles = profiles
         self.inspector = inspector
         self.kitVerifier = kitVerifier
         self.matcher = matcher
         self.applicator = applicator
-        self.featureExtractor = featureExtractor
     }
 
     public static func builtInDefault() throws -> IPAPatcherEngine {
@@ -47,7 +44,7 @@ public struct IPAPatcherEngine: Sendable {
             PatchProgress(
                 stage: .verifyingKit,
                 fractionCompleted: 0.2,
-                detailMessage: "正在校验内置底座 manifest.json 与 payload.zip 哈希…"
+                detailMessage: "正在检查内置补丁组件完整性…"
             )
         )
         var verified: [VerifiedPatchKit] = []
@@ -59,10 +56,38 @@ public struct IPAPatcherEngine: Sendable {
             PatchProgress(
                 stage: .verifyingKit,
                 fractionCompleted: 1.0,
-                detailMessage: "内置底座校验通过（\(verified.first?.payloadEntryCount ?? 0) 项条目一致）"
+                detailMessage: "内置补丁组件校验通过"
             )
         )
         return verified
+    }
+
+    /// Verifies all configured patch kits AND retains the verified overlay in memory so a subsequent
+    /// `applyPatch(..., preloadedKit:)` call avoids decompressing and hashing `payload.zip` a second time.
+    public func loadAndVerifyConfiguredKits(
+        onProgress: (@Sendable (PatchProgress) -> Void)? = nil
+    ) throws -> [LoadedVerifiedKit] {
+        try Task.checkCancellation()
+        onProgress?(
+            PatchProgress(
+                stage: .verifyingKit,
+                fractionCompleted: 0.2,
+                detailMessage: "正在准备并校验内置补丁组件…"
+            )
+        )
+        var loaded: [LoadedVerifiedKit] = []
+        for profile in profiles {
+            try Task.checkCancellation()
+            loaded.append(try kitVerifier.loadAndVerifyOverlay(profile: profile))
+        }
+        onProgress?(
+            PatchProgress(
+                stage: .verifyingKit,
+                fractionCompleted: 1.0,
+                detailMessage: "内置补丁组件已就绪"
+            )
+        )
+        return loaded
     }
 
     /// Entry 1: Host Identification (standalone URL).
@@ -98,7 +123,7 @@ public struct IPAPatcherEngine: Sendable {
             PatchProgress(
                 stage: .matchingCompatibility,
                 fractionCompleted: 0.25,
-                detailMessage: "正在按优先级匹配：手工配置 → 内置基准 → 自动定位…"
+                detailMessage: "正在匹配最合适的补丁方案…"
             )
         )
         let result = try matcher.match(
@@ -141,6 +166,7 @@ public struct IPAPatcherEngine: Sendable {
         workingDirectory: URL,
         options: PatchOptions = .default,
         inputSession: PatchInputSession? = nil,
+        preloadedKit: LoadedVerifiedKit? = nil,
         overwriteExistingOutput: Bool = false,
         onProgress: (@Sendable (PatchProgress) -> Void)? = nil
     ) throws -> PatchExecutionResult {
@@ -150,6 +176,7 @@ public struct IPAPatcherEngine: Sendable {
             workingDirectory: workingDirectory,
             options: options,
             inputSession: inputSession,
+            preloadedKit: preloadedKit,
             overwriteExistingOutput: overwriteExistingOutput,
             onProgress: onProgress
         )

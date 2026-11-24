@@ -68,8 +68,10 @@ public final class Zip64Reader: @unchecked Sendable {
         }
         var output = Data()
         output.reserveCapacity(Int(entry.uncompressedSize))
-        try streamDecompressed(entry: entry, chunkSize: ZipConstants.defaultChunkSize) { chunk in
-            output.append(chunk)
+        try streamDecompressedBuffer(entry: entry, chunkSize: ZipConstants.defaultChunkSize) { buffer in
+            if let base = buffer.baseAddress, !buffer.isEmpty {
+                output.append(base.assumingMemoryBound(to: UInt8.self), count: buffer.count)
+            }
         }
         return output
     }
@@ -84,6 +86,9 @@ public final class Zip64Reader: @unchecked Sendable {
     /// Reads only the first `prefixBytes` decompressed bytes of an entry without inflating the whole file.
     /// Ideal for probing large files like `global-metadata.dat` in <1ms with minimal memory.
     public func readDecompressedPrefix(for entry: ZipEntry, prefixBytes: Int) throws -> Data {
+        guard !entry.isEncrypted else {
+            throw ZipError.encryptedArchive(entry: entry.name)
+        }
         guard prefixBytes > 0 else { return Data() }
         let dataOffset = try localDataOffset(for: entry)
         let targetLen = min(prefixBytes, Int(min(entry.uncompressedSize, UInt64(Int.max))))
@@ -126,6 +131,7 @@ public final class Zip64Reader: @unchecked Sendable {
                     stream.avail_in = uInt(inRaw.count)
 
                     while stream.avail_in > 0 && result.count < targetLen && !done {
+                        let prevAvailIn = stream.avail_in
                         var produced = 0
                         let status: Int32 = outBuffer.withUnsafeMutableBufferPointer { outBuf in
                             stream.next_out = outBuf.baseAddress
@@ -140,6 +146,8 @@ public final class Zip64Reader: @unchecked Sendable {
                         }
                         if status == Z_STREAM_END {
                             done = true
+                        } else if status == Z_BUF_ERROR && produced == 0 && stream.avail_in == prevAvailIn {
+                            throw ZipError.decompressionFailed(entry: entry.name, code: status)
                         } else if status != Z_OK && status != Z_BUF_ERROR {
                             throw ZipError.decompressionFailed(entry: entry.name, code: status)
                         }
@@ -204,6 +212,23 @@ public final class Zip64Reader: @unchecked Sendable {
         chunkSize: Int = ZipConstants.defaultChunkSize,
         onChunk: (Data) throws -> Void
     ) throws {
+        try streamDecompressedBuffer(entry: entry, chunkSize: chunkSize) { buffer in
+            if let base = buffer.baseAddress, !buffer.isEmpty {
+                try onChunk(Data(bytes: base, count: buffer.count))
+            }
+        }
+    }
+
+    /// Zero-copy streaming decompression yielding slices directly from the reusable inflate buffer,
+    /// verifying CRC32 and exact uncompressed length. Ideal for large-archive CRC & SHA-256 verification.
+    public func streamDecompressedBuffer(
+        entry: ZipEntry,
+        chunkSize: Int = ZipConstants.defaultChunkSize,
+        onBuffer: (UnsafeRawBufferPointer) throws -> Void
+    ) throws {
+        guard !entry.isEncrypted else {
+            throw ZipError.encryptedArchive(entry: entry.name)
+        }
         let dataOffset = try localDataOffset(for: entry)
         let effectiveChunk = max(64 * 1024, chunkSize)
         var runningCRC: uLong = zlib.crc32(0, nil, 0)
@@ -220,17 +245,19 @@ public final class Zip64Reader: @unchecked Sendable {
             }
             var remaining = entry.compressedSize
             var cursor = dataOffset
+            var readBuf = [UInt8](repeating: 0, count: Int(min(UInt64(effectiveChunk), max(1, remaining))))
             while remaining > 0 {
                 try Task.checkCancellation()
                 let toRead = Int(min(UInt64(effectiveChunk), remaining))
-                let chunk = try Self.preadExact(fd: fd, offset: cursor, length: toRead)
-                chunk.withUnsafeBytes { raw in
-                    if let base = raw.baseAddress?.assumingMemoryBound(to: Bytef.self), raw.count > 0 {
-                        runningCRC = zlib.crc32(runningCRC, base, uInt(raw.count))
+                try Self.preadExactInto(fd: fd, offset: cursor, buffer: &readBuf, length: toRead)
+                try readBuf.withUnsafeBytes { raw in
+                    let slice = UnsafeRawBufferPointer(rebasing: raw[0..<toRead])
+                    if let base = slice.baseAddress?.assumingMemoryBound(to: Bytef.self), toRead > 0 {
+                        runningCRC = zlib.crc32(runningCRC, base, uInt(toRead))
                     }
+                    totalOut += UInt64(toRead)
+                    try onBuffer(slice)
                 }
-                totalOut += UInt64(chunk.count)
-                try onChunk(chunk)
                 cursor += UInt64(toRead)
                 remaining -= UInt64(toRead)
             }
@@ -248,6 +275,7 @@ public final class Zip64Reader: @unchecked Sendable {
             }
             defer { inflateEnd(&stream) }
 
+            var inBuffer = [UInt8](repeating: 0, count: Int(min(UInt64(effectiveChunk), max(1, entry.compressedSize))))
             var outBuffer = [UInt8](repeating: 0, count: effectiveChunk)
             var remaining = entry.compressedSize
             var cursor = dataOffset
@@ -273,19 +301,20 @@ public final class Zip64Reader: @unchecked Sendable {
             while remaining > 0 && !streamEnded {
                 try Task.checkCancellation()
                 let toRead = Int(min(UInt64(effectiveChunk), remaining))
-                let compressedChunk = try Self.preadExact(fd: fd, offset: cursor, length: toRead)
+                try Self.preadExactInto(fd: fd, offset: cursor, buffer: &inBuffer, length: toRead)
                 cursor += UInt64(toRead)
                 remaining -= UInt64(toRead)
 
-                try compressedChunk.withUnsafeBytes { inRaw in
+                try inBuffer.withUnsafeBytes { inRaw in
                     guard let inBase = inRaw.baseAddress?.assumingMemoryBound(to: Bytef.self) else {
                         return
                     }
                     stream.next_in = UnsafeMutablePointer(mutating: inBase)
-                    stream.avail_in = uInt(inRaw.count)
+                    stream.avail_in = uInt(toRead)
 
                     while stream.avail_in > 0 && !streamEnded {
                         try Task.checkCancellation()
+                        let prevAvailIn = stream.avail_in
                         var produced = 0
                         let status: Int32 = outBuffer.withUnsafeMutableBufferPointer { outBuf in
                             stream.next_out = outBuf.baseAddress
@@ -304,18 +333,21 @@ public final class Zip64Reader: @unchecked Sendable {
                                     actual: totalOut &+ producedU64
                                 )
                             }
-                            outBuffer.withUnsafeBytes { raw in
-                                if let base = raw.baseAddress?.assumingMemoryBound(to: Bytef.self) {
+                            try outBuffer.withUnsafeBytes { raw in
+                                let slice = UnsafeRawBufferPointer(rebasing: raw[0..<produced])
+                                if let base = slice.baseAddress?.assumingMemoryBound(to: Bytef.self) {
                                     runningCRC = zlib.crc32(runningCRC, base, uInt(produced))
                                 }
+                                totalOut += producedU64
+                                try onBuffer(slice)
                             }
-                            totalOut += producedU64
-                            try onChunk(Data(bytes: outBuffer, count: produced))
                         }
 
                         if status == Z_STREAM_END {
                             streamEnded = true
                             break
+                        } else if status == Z_BUF_ERROR && produced == 0 && stream.avail_in == prevAvailIn {
+                            throw ZipError.decompressionFailed(entry: entry.name, code: status)
                         } else if status != Z_OK && status != Z_BUF_ERROR {
                             throw ZipError.decompressionFailed(entry: entry.name, code: status)
                         }
@@ -345,13 +377,14 @@ public final class Zip64Reader: @unchecked Sendable {
                             actual: totalOut &+ producedU64
                         )
                     }
-                    outBuffer.withUnsafeBytes { raw in
-                        if let base = raw.baseAddress?.assumingMemoryBound(to: Bytef.self) {
+                    try outBuffer.withUnsafeBytes { raw in
+                        let slice = UnsafeRawBufferPointer(rebasing: raw[0..<produced])
+                        if let base = slice.baseAddress?.assumingMemoryBound(to: Bytef.self) {
                             runningCRC = zlib.crc32(runningCRC, base, uInt(produced))
                         }
+                        totalOut += producedU64
+                        try onBuffer(slice)
                     }
-                    totalOut += producedU64
-                    try onChunk(Data(bytes: outBuffer, count: produced))
                 }
                 if status == Z_STREAM_END {
                     streamEnded = true
@@ -387,14 +420,40 @@ public final class Zip64Reader: @unchecked Sendable {
 
         for (index, entry) in entries.enumerated() {
             try Task.checkCancellation()
-            try streamDecompressed(entry: entry) { chunk in
-                verifiedBytes &+= UInt64(chunk.count)
+            try streamDecompressedBuffer(entry: entry) { buf in
+                verifiedBytes &+= UInt64(buf.count)
             }
             onProgress?(index + 1, totalEntries, verifiedBytes, totalBytes)
         }
     }
 
     // MARK: - Central Directory Parsing
+
+    private static func preadExactInto(fd: Int32, offset: UInt64, buffer: inout [UInt8], length: Int) throws {
+        if length == 0 { return }
+        guard length > 0, length <= buffer.count,
+              let baseOffset = off_t(exactly: offset),
+              let lenOff = off_t(exactly: length),
+              baseOffset <= off_t.max - lenOff else {
+            throw ZipError.truncatedArchive("读取文件偏移越界（offset=\(offset), length=\(length)）")
+        }
+        var totalRead = 0
+        try buffer.withUnsafeMutableBytes { raw in
+            guard let base = raw.baseAddress else { return }
+            while totalRead < length {
+                let n = pread(fd, base.advanced(by: totalRead), length - totalRead, baseOffset + off_t(totalRead))
+                if n < 0 {
+                    if errno == EINTR { continue }
+                    let errStr = String(cString: strerror(errno))
+                    throw ZipError.ioError("读取文件偏移 \(offset) 失败：\(errStr)")
+                }
+                if n == 0 {
+                    throw ZipError.truncatedArchive("读取偏移 \(offset) 时提前到达文件末尾")
+                }
+                totalRead += n
+            }
+        }
+    }
 
     private static func preadExact(fd: Int32, offset: UInt64, length: Int) throws -> Data {
         if length == 0 { return Data() }

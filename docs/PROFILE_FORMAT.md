@@ -109,4 +109,6 @@
 1. `U8.SDK.SDKMeta`：包含 6 个连续实例字段（全部为 `System.String`），按顺序为 `appID`、`appKey`、`channel`、`worldId`、`extension`、`appCode`（偏移自 `+0x10` 起）。
 2. `NetworkConfig`（`get_networkConfig` 返回值结构体）：值类型，共 **104 字节**（12 个 `System.String` 指针 + 1 个 `bool` 开发服标记位于 `+0x60`）。
 3. `NetworkOverride`（`OverrideNetworkOptions` 覆盖参数）：共 **112 字节**（`enabled` 标志 + 7 字节对齐 + 嵌套 `NetworkConfig` 位于 `+0x08`）。
-4. Unity IL2CPP 对象与类头偏移：`Il2CppString.length` (`+0x10`)、`chars` (`+0x14`)；`Il2CppClass.static_fields` (`+0xb8`)、`rgctx_data` (`+0xc0`)、`initialized_and_no_error` (`+0x136`)；`MethodInfo.methodPointer` (`+0x00`)、`klass` (`+0x20`)。
+4. Unity IL2CPP 对象与类头偏移：`Il2CppString.length` (`+0x10`)、`chars` (`+0x14`)；`Il2CppClass.static_fields` (`+0xb8`)、`rgctx_data` (`+0xc0`)、`cctor_finished_or_no_cctor` (`+0xe0`)、`initialized_and_no_error` (`+0x136`)；`MethodInfo.methodPointer` (`+0x00`)、`klass` (`+0x20`)。
+5. 宿主运行时单例对象最小布局假设：`U8.SDK.U8SDKInterface` 实例至少包含 `+0xc0` 处就绪指针（`instance_size >= 0xc8`）、`U8.SDK.SDKExternalTools` 静态字段表 `+0x10` 处为实例指针、`Torappu.Network.Networker` 实例 `+0x10` 与 `+0x48` 处为非空子对象指针（`instance_size >= 0x50`）。
+6. 严格缺键保护：当应用包内存在显式 `ABRuntimeProfile.plist` 时，桥接层要求除可选的 `networkerExpectedClass` 外其余 13 项偏移均显式提供且非零，不再回退至 2.7.91 默认地址。

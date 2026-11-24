@@ -28,7 +28,7 @@ public struct CompatibilityMismatch: Sendable, Hashable, Identifiable {
         actual: String,
         detail: String
     ) {
-        self.id = "\(kind.rawValue):\(fieldLabel):\(actual):\(detail.prefix(32))"
+        self.id = "\(kind.rawValue):\(fieldLabel):\(expected):\(actual):\(detail)"
         self.kind = kind
         self.fieldLabel = fieldLabel
         self.expected = expected
@@ -52,15 +52,15 @@ public struct IncompatibilityReport: Sendable, Hashable {
 
     public var summaryText: String {
         if isEncrypted {
-            return "检测到未解密 IPA（版本 \(actualVersion) / build \(actualBuild)），本工具仅支持已解密 IPA。"
+            return "检测到未砸壳（已加密）IPA（版本 \(actualVersion) / Build \(actualBuild)），请导入已砸壳的官服 IPA。"
         }
         if let autoReason = autoAdaptationFailureReason {
-            return "当前 IPA 为 \(actualVersion)（build \(actualBuild)），未匹配到已验证基准或手工配置，且本机自动定位未确认兼容：\(autoReason)"
+            return "当前游戏版本为 \(actualVersion)（Build \(actualBuild)），未匹配到内置版本或已导入配置，且自动适配未通过：\(autoReason)"
         }
         if autoAdaptationAttempted {
-            return "当前 IPA 为 \(actualVersion)（build \(actualBuild)），未匹配到内置基准或手工配置，你可以导入手工适配配置后再试。"
+            return "当前游戏版本为 \(actualVersion)（Build \(actualBuild)），暂未匹配到适配配置，你可以导入新版手工配置后再试。"
         }
-        return "当前 IPA 为 \(actualVersion)（build \(actualBuild)），与内置基准 \(targetVersion)（build \(targetBuild)）不一致（共 \(mismatches.count) 项）。"
+        return "当前游戏版本为 \(actualVersion)（Build \(actualBuild)），与内置支持版本 \(targetVersion)（Build \(targetBuild)）不一致（共 \(mismatches.count) 项）。"
     }
 
     public init(
@@ -223,7 +223,7 @@ public struct CompatibilityMatcher: Sendable {
 
         if eligibleForAutoAdapt {
             do {
-                onStatus?("未命中内置基准，正在启动本机 IL2CPP 自动定位与字节级 ABI 校验…")
+                onStatus?("检测到新版本，正在尝试本机自动分析适配…")
                 let resolver = IL2CPPAutoResolver()
                 let resolution: IL2CPPAutoResolutionReport
                 if let session = inputSession {
@@ -346,10 +346,10 @@ public struct CompatibilityMatcher: Sendable {
             mismatches.append(
                 CompatibilityMismatch(
                     kind: .encryptedBinary,
-                    fieldLabel: "加密状态",
-                    expected: "全部已解密（cryptid = 0）",
-                    actual: "检测到加密（\(encryptedNames.joined(separator: ", "))）",
-                    detail: "本工具不执行解密，请导入已解密的 IPA。"
+                    fieldLabel: "砸壳状态",
+                    expected: "已砸壳（cryptid = 0）",
+                    actual: "未砸壳加密（\(encryptedNames.joined(separator: ", "))）",
+                    detail: "本工具不负责砸壳，请导入已砸壳的官服 IPA。"
                 )
             )
         }
@@ -468,10 +468,10 @@ public struct CompatibilityMatcher: Sendable {
             mismatches.append(
                 CompatibilityMismatch(
                     kind: .encryptedBinary,
-                    fieldLabel: "加密状态",
-                    expected: "全部已解密（cryptid = 0）",
-                    actual: "检测到加密（\(encryptedNames.joined(separator: ", "))）",
-                    detail: "本工具不执行解密，请导入已解密的 IPA。"
+                    fieldLabel: "砸壳状态",
+                    expected: "已砸壳（cryptid = 0）",
+                    actual: "未砸壳加密（\(encryptedNames.joined(separator: ", "))）",
+                    detail: "本工具不负责砸壳，请导入已砸壳的官服 IPA。"
                 )
             )
         }
@@ -538,9 +538,9 @@ public struct CompatibilityMatcher: Sendable {
                 CompatibilityMismatch(
                     kind: .binaryArchitecture,
                     fieldLabel: "架构 · UnityFramework",
-                    expected: "单架构已解密 arm64",
+                    expected: "单架构已砸壳 arm64",
                     actual: "\(unityBinary.slices.count) 个切片（\(unityBinary.architectureSummary)）",
-                    detail: "UnityFramework 必须为单架构已解密 arm64。"
+                    detail: "UnityFramework 必须为单架构已砸壳 arm64。"
                 )
             )
         } else if unityBinary.primaryUUID?.lowercased() != profile.unityUUID.lowercased() {

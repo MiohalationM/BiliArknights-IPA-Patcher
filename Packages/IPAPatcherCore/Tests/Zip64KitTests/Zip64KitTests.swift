@@ -202,6 +202,59 @@ final class Zip64KitTests: XCTestCase {
         XCTAssertEqual(callbackBytes, 0, "Callback must never receive chunks exceeding declared uncompressedSize")
     }
 
+    func testRejectsEncryptedEntryOverlongNameAndSupportsZeroCopyBufferStream() throws {
+        // 1. Overlong filename (> 65535 UTF-8 bytes) must throw ZipError.unsafeEntryPath cleanly instead of trapping.
+        let longNameURL = tempDir.appendingPathComponent("long-name.zip")
+        let longWriter = try Zip64Writer(url: longNameURL)
+        let overlongName = "Payload/" + String(repeating: "a", count: 65536)
+        XCTAssertThrowsError(
+            try longWriter.writeDeflatedEntry(
+                name: overlongName,
+                data: Data("x".utf8),
+                externalAttributes: 0o100644 << 16
+            )
+        ) { err in
+            guard case ZipError.unsafeEntryPath = err else {
+                return XCTFail("Expected unsafeEntryPath for >65535-byte name, got \(err)")
+            }
+        }
+        longWriter.abortAndRemove()
+
+        // 2. Zero-copy buffer streaming matches exact payload bytes.
+        let okURL = tempDir.appendingPathComponent("zero-copy.zip")
+        let payload = Data((0..<(200 * 1024)).map { UInt8($0 & 0xFF) })
+        let writer = try Zip64Writer(url: okURL)
+        try writer.writeDeflatedEntry(name: "Payload/blob.bin", data: payload, externalAttributes: 0o100644 << 16)
+        try writer.finish()
+
+        let reader = try Zip64Reader(url: okURL)
+        let entry = try XCTUnwrap(reader.entry(named: "Payload/blob.bin"))
+        var reassembled = Data()
+        try reader.streamDecompressedBuffer(entry: entry, chunkSize: 64 * 1024) { buf in
+            if let base = buf.baseAddress {
+                reassembled.append(base.assumingMemoryBound(to: UInt8.self), count: buf.count)
+            }
+        }
+        XCTAssertEqual(reassembled, payload)
+
+        // 3. Flip general purpose bit 0 (encrypted flag) in Central Directory -> must throw ZipError.encryptedArchive.
+        var bytes = try Data(contentsOf: okURL)
+        let cdSig = Data([0x50, 0x4B, 0x01, 0x02])
+        let cdRange = try XCTUnwrap(bytes.range(of: cdSig))
+        bytes[cdRange.lowerBound + 8] |= 0x01
+        let encURL = tempDir.appendingPathComponent("encrypted-flag.zip")
+        try bytes.write(to: encURL)
+
+        let encReader = try Zip64Reader(url: encURL)
+        let encEntry = try XCTUnwrap(encReader.entries.first)
+        XCTAssertTrue(encEntry.isEncrypted)
+        XCTAssertThrowsError(try encReader.readData(for: encEntry)) { err in
+            guard case ZipError.encryptedArchive = err else {
+                return XCTFail("Expected encryptedArchive, got \(err)")
+            }
+        }
+    }
+
     private func runProcess(_ launchPath: String, args: [String]) throws {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: launchPath)

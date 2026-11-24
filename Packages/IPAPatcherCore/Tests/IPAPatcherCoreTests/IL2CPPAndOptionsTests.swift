@@ -95,12 +95,58 @@ final class IL2CPPAndOptionsTests: XCTestCase {
         let roundTripped = try RuntimeOffsetProfile.decode(from: uuidOnlyPlist)
         XCTAssertNil(roundTripped.unityTextSize)
         XCTAssertNil(roundTripped.unityTextSHA256)
+
+        // 4. Pretty JSON export round-trip & strict decoding error messages.
+        let prettyJSON = try decodedFromJSON.encodeToPrettyJSONData()
+        let decodedFromPretty = try RuntimeOffsetProfile.decode(from: prettyJSON)
+        XCTAssertEqual(decodedFromPretty.il2cppOffsets, decodedFromJSON.il2cppOffsets)
+        XCTAssertEqual(decodedFromPretty.unityUUID, decodedFromJSON.unityUUID)
+
+        let badSchemaTypeJSON = Data("""
+        {
+          "schema": "invalid",
+          "version": "2.8.0",
+          "build": "80",
+          "unityUUID": "11223344-5566-7788-99aa-bbccddeeff00",
+          "il2cppOffsets": {}
+        }
+        """.utf8)
+        XCTAssertThrowsError(try RuntimeOffsetProfile.decode(from: badSchemaTypeJSON)) { err in
+            XCTAssertTrue(err.localizedDescription.contains("schema"), "Expected schema error, got \(err.localizedDescription)")
+        }
+
+        let missingOffsetJSON = Data("""
+        {
+          "schema": 1,
+          "version": "2.8.0",
+          "build": "80",
+          "unityUUID": "11223344-5566-7788-99aa-bbccddeeff00",
+          "il2cppOffsets": {
+            "sdkInterfaceClassSlot": "0x1000",
+            "sdkExternalToolsClassSlot": "0x1008",
+            "sdkMetaClassSlot": "0x1010",
+            "networkerTypeSlot": "0x1018",
+            "gameFlowClassSlot": "0x1020",
+            "getNetworkConfigFn": "0x2000",
+            "overrideNetworkOptionsFn": "0x2010",
+            "createStringFn": "0x2020",
+            "internalSDKMetaFn": "0x2030",
+            "sdkMetaCtorFn": "0x2040",
+            "clearAuthStatusFn": "0x2050",
+            "clearLoginStatusFn": "0x2060"
+          }
+        }
+        """.utf8)
+        XCTAssertThrowsError(try RuntimeOffsetProfile.decode(from: missingOffsetJSON)) { err in
+            XCTAssertTrue(err.localizedDescription.contains("getCurrentSceneFn"), "Expected missing key name, got \(err.localizedDescription)")
+        }
     }
 
     func testManualProfileMismatchedTextDigestRejectedBeforeWritingOutput() throws {
-        let engine = try IPAPatcherEngine.builtInDefault()
-        let kits = try engine.verifyConfiguredKits()
-        let manifest = kits[0].manifest
+        let kitCtx = try SyntheticIPABuilder.createSyntheticKitEngine(in: tempDir)
+        let engine = kitCtx.engine
+        let kits = kitCtx.verifiedKits
+        let manifest = kitCtx.manifest
 
         let futureUUID = "22334455-6677-8899-aabb-ccddeeff0011"
         var cfg = SyntheticIPABuilder.Configuration()
@@ -146,9 +192,10 @@ final class IL2CPPAndOptionsTests: XCTestCase {
     }
 
     func testOriginalIconOptionSkipsBiliIconsAndPreservesHostIconKeys() throws {
-        let engine = try IPAPatcherEngine.builtInDefault()
-        let kits = try engine.verifyConfiguredKits()
-        let manifest = kits[0].manifest
+        let kitCtx = try SyntheticIPABuilder.createSyntheticKitEngine(in: tempDir)
+        let engine = kitCtx.engine
+        let kits = kitCtx.verifiedKits
+        let manifest = kitCtx.manifest
 
         let inputIPA = tempDir.appendingPathComponent("orig-icon-input.ipa")
         try SyntheticIPABuilder.createSyntheticIPA(at: inputIPA, manifest: manifest)
@@ -190,9 +237,10 @@ final class IL2CPPAndOptionsTests: XCTestCase {
     }
 
     func testManualCustomProfileMatchesFutureVersionWithoutUpdatingApp() throws {
-        let engine = try IPAPatcherEngine.builtInDefault()
-        let kits = try engine.verifyConfiguredKits()
-        let manifest = kits[0].manifest
+        let kitCtx = try SyntheticIPABuilder.createSyntheticKitEngine(in: tempDir)
+        let engine = kitCtx.engine
+        let kits = kitCtx.verifiedKits
+        let manifest = kitCtx.manifest
 
         let futureUUID = "11223344-5566-7788-99aa-bbccddeeff00"
         var cfg = SyntheticIPABuilder.Configuration()
@@ -288,9 +336,10 @@ final class IL2CPPAndOptionsTests: XCTestCase {
     }
 
     func testKnownBaseline2791WithWrongUUIDNeverFallsBackToAutoAdaptAndSelfCheckRejectsNonBaseline() throws {
-        let engine = try IPAPatcherEngine.builtInDefault()
-        let kits = try engine.verifyConfiguredKits()
-        let manifest = kits[0].manifest
+        let kitCtx = try SyntheticIPABuilder.createSyntheticKitEngine(in: tempDir)
+        let engine = kitCtx.engine
+        let kits = kitCtx.verifiedKits
+        let manifest = kitCtx.manifest
 
         // 1. Claims to be 2.7.91 / build 76, but UnityFramework UUID is altered -> must NOT invoke Tier 3 auto-adapt!
         var cfg = SyntheticIPABuilder.Configuration()
@@ -433,11 +482,47 @@ final class IL2CPPAndOptionsTests: XCTestCase {
         )
         let networkerItem = try XCTUnwrap(sectionHintReport.items.first { $0.key == "networkerTypeSlot" })
         XCTAssertEqual(networkerItem.candidateCount, 2)
+        // 5. Early fast-path RET preceding slow-path ADRP+LDR init must still resolve uniquely!
+        let earlyRetFixture = try SyntheticIL2CPPFixture.build(
+            useChainedFixups: true,
+            networkConfigStringFields: 12,
+            networkConfigDevOffsetOverride: nil,
+            networkConfigSizeOverride: nil,
+            emitAmbiguousDoubleIntersect: false,
+            emitDuplicateNetworkerSlotInDataConst: false,
+            prependEarlyRetBeforeSDKInterfaceSlot: true
+        )
+        let earlyRetReport = try resolver.resolve(
+            globalMetadataData: earlyRetFixture.globalMetadata,
+            unityFrameworkData: earlyRetFixture.unityFramework,
+            hostProfile: host
+        )
+        XCTAssertTrue(earlyRetReport.isConfirmedCompatible)
+        XCTAssertEqual(earlyRetReport.profile?.il2cppOffsets, earlyRetFixture.expectedOffsets)
+
+        // 6. Shrunk U8SDKInterface instance size (< 0xc8) must fail ABI gating cleanly!
+        let shrunkSDKFixture = try SyntheticIL2CPPFixture.build(
+            useChainedFixups: true,
+            networkConfigStringFields: 12,
+            networkConfigDevOffsetOverride: nil,
+            networkConfigSizeOverride: nil,
+            emitAmbiguousDoubleIntersect: false,
+            emitDuplicateNetworkerSlotInDataConst: false,
+            sdkInterfaceSizeOverride: 0x40
+        )
+        let shrunkReport = try resolver.resolve(
+            globalMetadataData: shrunkSDKFixture.globalMetadata,
+            unityFrameworkData: shrunkSDKFixture.unityFramework,
+            hostProfile: host
+        )
+        XCTAssertFalse(shrunkReport.isConfirmedCompatible)
+        XCTAssertTrue(shrunkReport.unverifiedReasons.contains { $0.contains("U8SDKInterface") })
     }
 
     func testCancellationPropagatesUnwrappedFromAutoResolver() async throws {
-        let engine = try IPAPatcherEngine.builtInDefault()
-        let kits = try engine.verifyConfiguredKits()
+        let kitCtx = try SyntheticIPABuilder.createSyntheticKitEngine(in: tempDir)
+        let engine = kitCtx.engine
+        let kits = kitCtx.verifiedKits
         let ipaURL = tempDir.appendingPathComponent("cancel-auto.ipa")
         try SyntheticIPABuilder.createSyntheticIPA(at: ipaURL, manifest: kits[0].manifest)
         let host = try engine.inspectHost(at: ipaURL)
@@ -455,6 +540,52 @@ final class IL2CPPAndOptionsTests: XCTestCase {
             XCTFail("Expected CancellationError, got \(error)")
         }
     }
+
+    func testRuntimeOffsetsSegmentBoundsAndAlignmentPreflight() throws {
+        let fixture = try SyntheticIL2CPPFixture.build(
+            useChainedFixups: false,
+            networkConfigStringFields: 12,
+            networkConfigDevOffsetOverride: nil,
+            networkConfigSizeOverride: nil,
+            emitAmbiguousDoubleIntersect: false,
+            emitDuplicateNetworkerSlotInDataConst: false
+        )
+
+        // 1. Valid offsets inside __TEXT.__text (4B aligned) and __DATA (8B aligned) must pass cleanly.
+        let validMismatches = MachOParser.validateRuntimeOffsets(
+            fixture.expectedOffsets,
+            againstMachOData: fixture.unityFramework
+        )
+        XCTAssertTrue(validMismatches.isEmpty, "Unexpected mismatches: \(validMismatches)")
+
+        // 2. Misaligned function RVA, out-of-segment function RVA, and data slot pointing into __TEXT must all be rejected.
+        let o = fixture.expectedOffsets
+        let badOffsets = IL2CPPOffsetSet(
+            sdkInterfaceClassSlot: o.getNetworkConfigFn, // points into __TEXT instead of __DATA
+            sdkExternalToolsClassSlot: o.sdkExternalToolsClassSlot + 4, // not 8-byte aligned
+            sdkMetaClassSlot: o.sdkMetaClassSlot,
+            networkerTypeSlot: o.networkerTypeSlot,
+            networkerExpectedClass: 0,
+            gameFlowClassSlot: o.gameFlowClassSlot,
+            getNetworkConfigFn: o.getNetworkConfigFn + 2, // not 4-byte aligned
+            overrideNetworkOptionsFn: 0x0999_0000, // outside all mapped segments
+            createStringFn: o.createStringFn,
+            internalSDKMetaFn: o.internalSDKMetaFn,
+            sdkMetaCtorFn: o.sdkMetaCtorFn,
+            clearAuthStatusFn: o.clearAuthStatusFn,
+            clearLoginStatusFn: o.clearLoginStatusFn,
+            getCurrentSceneFn: o.getCurrentSceneFn
+        )
+        let badMismatches = MachOParser.validateRuntimeOffsets(
+            badOffsets,
+            againstMachOData: fixture.unityFramework
+        )
+        XCTAssertEqual(badMismatches.count, 4, "Expected 4 offset violations, got \(badMismatches)")
+        XCTAssertTrue(badMismatches.contains { $0.fieldLabel.contains("sdkInterfaceClassSlot") })
+        XCTAssertTrue(badMismatches.contains { $0.fieldLabel.contains("sdkExternalToolsClassSlot") })
+        XCTAssertTrue(badMismatches.contains { $0.fieldLabel.contains("getNetworkConfigFn") })
+        XCTAssertTrue(badMismatches.contains { $0.fieldLabel.contains("overrideNetworkOptionsFn") })
+    }
 }
 
 // MARK: - Synthetic IL2CPP v29 + ARM64 Mach-O Fixture Builder (with Parameters, FieldOffsets & TypeDefinitionSizes)
@@ -471,7 +602,9 @@ private struct SyntheticIL2CPPFixture {
         networkConfigDevOffsetOverride: Int32?,
         networkConfigSizeOverride: UInt32?,
         emitAmbiguousDoubleIntersect: Bool,
-        emitDuplicateNetworkerSlotInDataConst: Bool
+        emitDuplicateNetworkerSlotInDataConst: Bool,
+        prependEarlyRetBeforeSDKInterfaceSlot: Bool = false,
+        sdkInterfaceSizeOverride: UInt32? = nil
     ) throws -> SyntheticIL2CPPFixture {
         var strBytes = Data([0])
         var strMap: [String: UInt32] = ["": 0]
@@ -731,8 +864,12 @@ private struct SyntheticIL2CPPFixture {
         let slotNetworkerRef: UInt64 = 0x8050
         let slotSDKInterfaceDup: UInt64 = 0x8060
 
-        func emitADRPAndLDR(at methodRVA: UInt64, targetSlotRVAs: [UInt64]) {
+        func emitADRPAndLDR(at methodRVA: UInt64, targetSlotRVAs: [UInt64], prependEarlyRet: Bool = false) {
             var pc = methodRVA
+            if prependEarlyRet {
+                putU32(&macho, at: Int(pc), 0xD65F_03C0) // early fast-path RET before slow-path ADRP+LDR
+                pc += 4
+            }
             for targetSlotRVA in targetSlotRVAs {
                 let deltaPages = Int64((targetSlotRVA & ~0xFFF) - (pc & ~0xFFF)) >> 12
                 let imm21 = UInt32(bitPattern: Int32(deltaPages)) & 0x1F_FFFF
@@ -749,7 +886,8 @@ private struct SyntheticIL2CPPFixture {
         }
         emitADRPAndLDR(
             at: rvaSDKInterfaceGetInst,
-            targetSlotRVAs: emitAmbiguousDoubleIntersect ? [slotSDKInterface, slotSDKInterfaceDup] : [slotSDKInterface]
+            targetSlotRVAs: emitAmbiguousDoubleIntersect ? [slotSDKInterface, slotSDKInterfaceDup] : [slotSDKInterface],
+            prependEarlyRet: prependEarlyRetBeforeSDKInterfaceSlot
         )
         emitADRPAndLDR(at: rvaSDKExternalGetInst, targetSlotRVAs: [slotSDKExternal])
         emitADRPAndLDR(at: rvaInternalSDKMeta, targetSlotRVAs: [slotSDKMeta])
@@ -883,8 +1021,14 @@ private struct SyntheticIL2CPPFixture {
         putU32(&macho, at: Int(netOverrideSizeStructRVA), UInt32(16 + 112))
         let sdkMetaSizeStructRVA: UInt64 = 0x8C40
         putU32(&macho, at: Int(sdkMetaSizeStructRVA), UInt32(0x10 + 48))
+        let sdkInterfaceSizeStructRVA: UInt64 = 0x8C60
+        putU32(&macho, at: Int(sdkInterfaceSizeStructRVA), sdkInterfaceSizeOverride ?? UInt32(0x100))
+        let networkerSizeStructRVA: UInt64 = 0x8C80
+        putU32(&macho, at: Int(networkerSizeStructRVA), UInt32(0x80))
 
         putU64(&macho, at: Int(typeSizesPtrArrayRVA) + 2 * 8, encodePtr(netCfgSizeStructRVA))
+        putU64(&macho, at: Int(typeSizesPtrArrayRVA) + 3 * 8, encodePtr(networkerSizeStructRVA))
+        putU64(&macho, at: Int(typeSizesPtrArrayRVA) + 4 * 8, encodePtr(sdkInterfaceSizeStructRVA))
         putU64(&macho, at: Int(typeSizesPtrArrayRVA) + 6 * 8, encodePtr(sdkMetaSizeStructRVA))
         putU64(&macho, at: Int(typeSizesPtrArrayRVA) + 8 * 8, encodePtr(netOverrideSizeStructRVA))
 

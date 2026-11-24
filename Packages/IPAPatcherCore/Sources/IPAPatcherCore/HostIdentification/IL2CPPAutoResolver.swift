@@ -154,7 +154,7 @@ public struct IL2CPPAutoResolver: Sendable {
         let metadataPath = hostProfile.appRoot + "Data/Managed/Metadata/global-metadata.dat"
         let unityPath = hostProfile.appRoot + "Frameworks/UnityFramework.framework/UnityFramework"
 
-        onProgress?("正在读取 global-metadata.dat 元数据…")
+        onProgress?("正在读取游戏核心元数据…")
         let metadataData: Data
         do {
             metadataData = try reader.readData(named: metadataPath)
@@ -170,7 +170,7 @@ public struct IL2CPPAutoResolver: Sendable {
         if let provided = unityFrameworkData {
             unityData = provided
         } else {
-            onProgress?("正在读取 UnityFramework 主二进制…")
+            onProgress?("正在读取游戏核心程序…")
             do {
                 unityData = try reader.readData(named: unityPath)
                 cacheUnityData?(unityData)
@@ -201,11 +201,11 @@ public struct IL2CPPAutoResolver: Sendable {
         try Task.checkCancellation()
 
         // 1. Parse `global-metadata.dat` (v27 / v29 / v31).
-        onProgress?("正在解析 global-metadata.dat 类型、方法与参数表…")
+        onProgress?("正在分析新版本游戏结构…")
         let metadata = try GlobalMetadataParser(data: globalMetadataData)
 
         // 2. Parse `UnityFramework` Mach-O 64-bit sections & `LC_DYLD_CHAINED_FIXUPS`.
-        onProgress?("正在解析 UnityFramework Mach-O 段表与指针格式…")
+        onProgress?("正在分析程序内存布局…")
         let macho = try MachOImageReader(data: unityFrameworkData)
 
         guard let unityUUID = macho.uuid else {
@@ -214,16 +214,20 @@ public struct IL2CPPAutoResolver: Sendable {
 
         // 3. Locate `Il2CppCodeGenModule` array and `Il2CppCodeRegistration` via `"mscorlib.dll\0"`.
         try Task.checkCancellation()
-        onProgress?("正在定位 Il2CppCodeGenModule 方法指针表…")
+        onProgress?("正在定位关键登录接口…")
         let codeGenLookup = try locateCodeGenModules(macho: macho, metadata: metadata)
 
         // 4. Locate `Il2CppMetadataRegistration` via `typeDefinitionsCount` pair.
         try Task.checkCancellation()
-        onProgress?("正在定位 Il2CppMetadataRegistration 泛型、字段偏移与类型尺寸表…")
-        let metaReg = try locateMetadataRegistration(macho: macho, typeDefCount: metadata.typeDefinitions.count)
+        onProgress?("正在校验新版本数据结构…")
+        let metaReg = try locateMetadataRegistration(
+            macho: macho,
+            typeDefCount: metadata.typeDefinitions.count,
+            metadataVersion: metadata.version
+        )
 
         // 5. Look up required C# TypeDefinitions (require exact uniqueness).
-        onProgress?("正在匹配目标 C# 类、方法签名与精确字节偏移布局…")
+        onProgress?("正在匹配渠道切换接口与字段…")
         let networkerType = try requireUniqueType(metadata, namespace: "Torappu.Network", name: "Networker")
         let systemStringType = try requireUniqueType(metadata, namespace: "System", name: "String")
         let sdkInterfaceType = try requireUniqueType(metadata, namespace: "U8.SDK", name: "U8SDKInterface")
@@ -375,7 +379,8 @@ public struct IL2CPPAutoResolver: Sendable {
             try? resolveMethodRVA(method: $0.def, imageName: sdkExternalToolsType.imageName, codeGen: codeGenLookup, macho: macho)
         }
 
-        // 7. Verify `U8.SDK.SDKMeta` exact field names, types, AND compiled byte offsets (0x10..0x38).
+        // 7. Verify `U8.SDK.SDKMeta` exact field names, types, AND compiled byte offsets (0x10..0x38),
+        // plus minimum instance sizes of `U8SDKInterface` (> 0xc0) and `Networker` (> 0x48) used by `ABRuntime.m`.
         let verifiedSDKMetaFields = try verifySDKMetaLayout(
             metadata: metadata,
             sdkMetaType: sdkMetaType,
@@ -388,10 +393,18 @@ public struct IL2CPPAutoResolver: Sendable {
         if !verifiedSDKMetaFields.exactByteOffsetsVerified {
             abiVerificationIssues.append(verifiedSDKMetaFields.diagnosticNote)
         }
+        if let sdkIfaceSize = readCompiledInstanceSize(typeDefIndex: sdkInterfaceType.index, metaReg: metaReg, macho: macho),
+           sdkIfaceSize < 0xc8 {
+            abiVerificationIssues.append("U8.SDK.U8SDKInterface 实例大小（\(sdkIfaceSize) 字节）小于桥接层所需最小偏移（0xc8）")
+        }
+        if let networkerSize = readCompiledInstanceSize(typeDefIndex: networkerType.index, metaReg: metaReg, macho: macho),
+           networkerSize < 0x50 {
+            abiVerificationIssues.append("Torappu.Network.Networker 实例大小（\(networkerSize) 字节）小于桥接层所需最小偏移（0x50）")
+        }
 
         // 8. Resolve `Singleton<Torappu.Network.Networker>.get_instance` MethodSpec & generic method pointer.
         try Task.checkCancellation()
-        onProgress?("正在解析泛型单例与全局 TypeInfo 槽位…")
+        onProgress?("正在核对运行时跳转地址…")
         let networkerSpec = try resolveNetworkerSingletonSpec(
             metadata: metadata,
             networkerType: networkerType,
@@ -522,7 +535,7 @@ public struct IL2CPPAutoResolver: Sendable {
         }
 
         // 11. Compute `__TEXT.__text` hash so `ABHooks.m` can verify the exact UnityFramework image at runtime.
-        onProgress?("正在计算 UnityFramework __text 代码段指纹…")
+        onProgress?("正在生成新版本校验指纹…")
         let (textSize, textSHA256) = macho.computeTextSectionDigest()
 
         let offsets = IL2CPPOffsetSet(
@@ -795,6 +808,7 @@ public struct IL2CPPAutoResolver: Sendable {
         let genericInstsFileOffset: Int
         let genericMethodTableCount: Int
         let genericMethodTableFileOffset: Int
+        let genericMethodTableStride: Int
         let typesCount: Int
         let typesFileOffset: Int
         let methodSpecsCount: Int
@@ -806,7 +820,8 @@ public struct IL2CPPAutoResolver: Sendable {
 
     private func locateMetadataRegistration(
         macho: MachOImageReader,
-        typeDefCount: Int
+        typeDefCount: Int,
+        metadataVersion: Int
     ) throws -> MetadataRegistrationInfo {
         let targetCount = UInt64(typeDefCount)
         for sec in macho.dataSections {
@@ -820,7 +835,12 @@ public struct IL2CPPAutoResolver: Sendable {
                 if macho.readUInt64LE(atFileOffset: pos) == targetCount &&
                     macho.readUInt64LE(atFileOffset: pos + 16) == targetCount {
                     let regOff = pos - 10 * 8
-                    if let parsed = validateMetadataRegistration(atFileOffset: regOff, macho: macho, typeDefCount: typeDefCount) {
+                    if let parsed = validateMetadataRegistration(
+                        atFileOffset: regOff,
+                        macho: macho,
+                        typeDefCount: typeDefCount,
+                        metadataVersion: metadataVersion
+                    ) {
                         return parsed
                     }
                 }
@@ -833,7 +853,8 @@ public struct IL2CPPAutoResolver: Sendable {
     private func validateMetadataRegistration(
         atFileOffset regOff: Int,
         macho: MachOImageReader,
-        typeDefCount: Int
+        typeDefCount: Int,
+        metadataVersion: Int
     ) -> MetadataRegistrationInfo? {
         guard checkedTableRange(offset: regOff, count: 14, stride: 8, limit: macho.data.count) else { return nil }
         guard let genericInstsCount = safeInt(macho.readUInt64LE(atFileOffset: regOff + 2 * 8), max: 5_000_000),
@@ -843,6 +864,10 @@ public struct IL2CPPAutoResolver: Sendable {
               typesCount >= typeDefCount else {
             return nil
         }
+
+        // IL2CPP v27.0 `Il2CppGenericMethodFunctionsDefinitions` is 12 bytes (no adjustorThunkIndex),
+        // while v27.1 / v29 / v31 are 16 bytes.
+        let candidateStrides = (metadataVersion == 27) ? [16, 12] : [16]
 
         guard let fieldOffsetsVA = macho.readDecodedPointerVA(atFileOffset: regOff + 11 * 8),
               let fieldOffsetsOff = macho.vaToFileOffset(fieldOffsetsVA),
@@ -858,18 +883,38 @@ public struct IL2CPPAutoResolver: Sendable {
               checkedTableRange(offset: genericInstsOff, count: genericInstsCount, stride: 8, limit: macho.data.count),
               let genericMethodTableVA = macho.readDecodedPointerVA(atFileOffset: regOff + 5 * 8),
               let genericMethodTableOff = macho.vaToFileOffset(genericMethodTableVA),
-              checkedTableRange(offset: genericMethodTableOff, count: genericMethodTableCount, stride: 16, limit: macho.data.count),
               let methodSpecsVA = macho.readDecodedPointerVA(atFileOffset: regOff + 9 * 8),
               let methodSpecsOff = macho.vaToFileOffset(methodSpecsVA),
               checkedTableRange(offset: methodSpecsOff, count: methodSpecsCount, stride: 12, limit: macho.data.count) else {
             return nil
         }
 
+        var chosenStride: Int?
+        for stride in candidateStrides {
+            guard checkedTableRange(offset: genericMethodTableOff, count: genericMethodTableCount, stride: stride, limit: macho.data.count) else {
+                continue
+            }
+            var plausible = true
+            for i in 0..<min(genericMethodTableCount, 8) {
+                let genIdx = Int(macho.readInt32LE(atFileOffset: genericMethodTableOff + i * stride))
+                if genIdx < 0 || genIdx >= methodSpecsCount {
+                    plausible = false
+                    break
+                }
+            }
+            if plausible {
+                chosenStride = stride
+                break
+            }
+        }
+        guard let genericMethodTableStride = chosenStride else { return nil }
+
         return MetadataRegistrationInfo(
             genericInstsCount: genericInstsCount,
             genericInstsFileOffset: genericInstsOff,
             genericMethodTableCount: genericMethodTableCount,
             genericMethodTableFileOffset: genericMethodTableOff,
+            genericMethodTableStride: genericMethodTableStride,
             typesCount: typesCount,
             typesFileOffset: typesOff,
             methodSpecsCount: methodSpecsCount,
@@ -1258,7 +1303,8 @@ public struct IL2CPPAutoResolver: Sendable {
             let methodDefIdx = Int(macho.readInt32LE(atFileOffset: off))
             guard methodDefIdx == getterMethod.index else { continue }
             let classInstIdx = Int(macho.readInt32LE(atFileOffset: off + 4))
-            guard classInstIdx >= 0 && classInstIdx < metaReg.genericInstsCount else { continue }
+            let methodInstIdx = Int(macho.readInt32LE(atFileOffset: off + 8))
+            guard methodInstIdx == -1, classInstIdx >= 0 && classInstIdx < metaReg.genericInstsCount else { continue }
 
             guard let instVA = macho.readDecodedPointerVA(atFileOffset: metaReg.genericInstsFileOffset + classInstIdx * 8),
                   let instOff = macho.vaToFileOffset(instVA),
@@ -1286,8 +1332,9 @@ public struct IL2CPPAutoResolver: Sendable {
         var methodPtrRVA: UInt64 = 0
         var strategy = "跳过次级方法指针校验（可选字段置 0）"
         if let codeReg {
+            let stride = metaReg.genericMethodTableStride
             for i in 0..<metaReg.genericMethodTableCount {
-                let off = metaReg.genericMethodTableFileOffset + i * 16
+                let off = metaReg.genericMethodTableFileOffset + i * stride
                 let genMethodIdx = Int(macho.readInt32LE(atFileOffset: off))
                 if genMethodIdx == specIdx {
                     let fnIdx = Int(macho.readInt32LE(atFileOffset: off + 4))
@@ -1714,11 +1761,30 @@ private final class GlobalMetadataParser {
     }
 
     func findTypes(namespace: String, name: String) -> [TypeLookup] {
+        let targetNameBytes = Array(name.utf8)
+        let targetNSBytes = Array(namespace.utf8)
         var out: [TypeLookup] = []
-        for (idx, td) in typeDefinitions.enumerated() {
-            if string(at: td.nameIndex) == name && string(at: td.namespaceIndex) == namespace {
-                let full = namespace.isEmpty ? name : "\(namespace).\(name)"
-                out.append(TypeLookup(index: idx, def: td, imageName: typeToImageName[idx], fullName: full))
+        data.withUnsafeBytes { raw in
+            guard let basePtr = raw.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
+            let tableEnd = min(stringOffset + stringSize, raw.count)
+            @inline(__always)
+            func matchesCString(at index: UInt32, expected: [UInt8]) -> Bool {
+                let idx = Int(index)
+                let start = stringOffset + idx
+                let len = expected.count
+                guard idx >= 0, start >= stringOffset, start + len < tableEnd else { return false }
+                if basePtr[start + len] != 0 { return false }
+                for k in 0..<len where basePtr[start + k] != expected[k] {
+                    return false
+                }
+                return true
+            }
+            for (idx, td) in typeDefinitions.enumerated() {
+                if matchesCString(at: td.nameIndex, expected: targetNameBytes),
+                   matchesCString(at: td.namespaceIndex, expected: targetNSBytes) {
+                    let full = namespace.isEmpty ? name : "\(namespace).\(name)"
+                    out.append(TypeLookup(index: idx, def: td, imageName: typeToImageName[idx], fullName: full))
+                }
             }
         }
         return out
@@ -1996,9 +2062,15 @@ private final class MachOImageReader {
                         }
                         let segInfoPos = imgStartsPos + segInfoRel
                         let pointerFormat = Self.readUInt16LE(data, at: segInfoPos + 6)
-                        let segFileOffU = Self.readUInt64LE(data, at: segInfoPos + 8)
-                        if let segFileOff = Int(exactly: segFileOffU),
-                           let idx = parsedSegments.firstIndex(where: { $0.fileOffset == segFileOff && $0.fileSize > 0 }) {
+                        let segVMOffsetU = Self.readUInt64LE(data, at: segInfoPos + 8)
+                        // Per Apple `dyld_chained_starts_in_segment`, `segment_offset` is the VM offset
+                        // relative to Mach-O header (`__TEXT.vmaddr`). Fall back to file offset / segment index.
+                        if let idx = parsedSegments.firstIndex(where: {
+                            $0.fileSize > 0 && $0.vmAddr >= textBase && ($0.vmAddr - textBase) == segVMOffsetU
+                        }) {
+                            parsedSegments[idx].chainedPointerFormat = pointerFormat
+                        } else if let segFileOff = Int(exactly: segVMOffsetU),
+                                  let idx = parsedSegments.firstIndex(where: { $0.fileOffset == segFileOff && $0.fileSize > 0 }) {
                             parsedSegments[idx].chainedPointerFormat = pointerFormat
                         } else if i < parsedSegments.count {
                             parsedSegments[i].chainedPointerFormat = pointerFormat
@@ -2143,22 +2215,26 @@ private final class MachOImageReader {
     func findAllDataPointersTargeting(_ targets: Set<UInt64>) -> [UInt64] {
         guard !targets.isEmpty else { return [] }
         var hits: [UInt64] = []
-        for sec in dataSections {
-            let fmt = pointerFormat(atFileOffset: sec.fileOffset)
-            let count = sec.size / 8
-            let base = sec.fileOffset
-            for i in 0..<count {
-                let off = base + i * 8
-                let raw = readUInt64LE(atFileOffset: off)
-                if raw == 0 { continue }
-                let decoded: UInt64?
-                if let fmt {
-                    decoded = decodePointerFast(raw: raw, format: fmt)
-                } else {
-                    decoded = decodePointerUnchained(raw: raw)
-                }
-                if let va = decoded, targets.contains(va) {
-                    hits.append(sec.vmAddr &+ UInt64(i * 8))
+        data.withUnsafeBytes { rawBuf in
+            let limit = rawBuf.count
+            for sec in dataSections {
+                let fmt = pointerFormat(atFileOffset: sec.fileOffset)
+                let count = sec.size / 8
+                let base = sec.fileOffset
+                guard base >= 0, base + count * 8 <= limit else { continue }
+                for i in 0..<count {
+                    let off = base + i * 8
+                    let raw = UInt64(littleEndian: rawBuf.loadUnaligned(fromByteOffset: off, as: UInt64.self))
+                    if raw == 0 { continue }
+                    let decoded: UInt64?
+                    if let fmt {
+                        decoded = decodePointerFast(raw: raw, format: fmt)
+                    } else {
+                        decoded = decodePointerUnchained(raw: raw)
+                    }
+                    if let va = decoded, targets.contains(va) {
+                        hits.append(sec.vmAddr &+ UInt64(i * 8))
+                    }
                 }
             }
         }
@@ -2168,15 +2244,19 @@ private final class MachOImageReader {
     func scanDataSectionsForRawUInt64s(targets: Set<UInt64>) -> [UInt64: [UInt64]] {
         var results: [UInt64: [UInt64]] = [:]
         guard !targets.isEmpty else { return results }
-        for sec in dataSections {
-            let count = sec.size / 8
-            let base = sec.fileOffset
-            for i in 0..<count {
-                let val = readUInt64LE(atFileOffset: base + i * 8)
-                if targets.contains(val) {
-                    let va = sec.vmAddr &+ UInt64(i * 8)
-                    let rva = va >= textBaseVMAddr ? (va - textBaseVMAddr) : va
-                    results[val, default: []].append(rva)
+        data.withUnsafeBytes { rawBuf in
+            let limit = rawBuf.count
+            for sec in dataSections {
+                let count = sec.size / 8
+                let base = sec.fileOffset
+                guard base >= 0, base + count * 8 <= limit else { continue }
+                for i in 0..<count {
+                    let val = UInt64(littleEndian: rawBuf.loadUnaligned(fromByteOffset: base + i * 8, as: UInt64.self))
+                    if targets.contains(val) {
+                        let va = sec.vmAddr &+ UInt64(i * 8)
+                        let rva = va >= textBaseVMAddr ? (va - textBaseVMAddr) : va
+                        results[val, default: []].append(rva)
+                    }
                 }
             }
         }
@@ -2289,6 +2369,7 @@ private enum ARM64SlotScanner {
         var pageRegs: [Int: UInt64] = [:]
         var found: [UInt64] = []
         var seen = Set<UInt64>()
+        var seenReturn = false
 
         for step in 0..<maxInstructions {
             let off = startOff + step * 4
@@ -2296,9 +2377,23 @@ private enum ARM64SlotScanner {
             let insn = macho.readUInt32LE(atFileOffset: off)
             let pc = startVA &+ UInt64(step * 4)
 
-            // Stop at RET / RETAA / RETAB
+            // Stop if we hit zero-padding / UDF after a return, or enter a new function prologue after a return.
+            if seenReturn {
+                let isZeroOrUDF = (insn == 0 || (insn & 0xFFFF_0000) == 0)
+                let isPacibsp = (insn == 0xD503_237F || insn == 0xD503_23FF)
+                // `SUB SP, SP, #imm` (0xD100_03FF mask 0xFF00_03FF) or `STP x29, x30, [sp, #-imm]!`
+                let isStackAllocPrologue = ((insn & 0xFF80_03FF) == 0xD100_03FF)
+                let isFrameSavePreIndex = ((insn & 0xFFC0_7FFF) == 0xA980_7BFD)
+                if isZeroOrUDF || isPacibsp || isStackAllocPrologue || isFrameSavePreIndex {
+                    break
+                }
+            }
+
+            // RET / RETAA / RETAB: record return & clear volatile page state (early fast-path RET may precede slow-path init).
             if insn == 0xD65F_03C0 || insn == 0xD65F_0BFF || insn == 0xD65F_0FFF {
-                break
+                seenReturn = true
+                pageRegs.removeAll(keepingCapacity: true)
+                continue
             }
 
             // ADRP Xd, #imm
@@ -2360,9 +2455,25 @@ private enum ARM64SlotScanner {
                 continue
             }
 
+            // BL / BLR: invalidate caller-saved registers x0..x18
             if (insn & 0xFC00_0000) == 0x9400_0000 || (insn & 0xFFFF_FC1F) == 0xD63F_0000 {
                 for r in 0...18 {
                     pageRegs.removeValue(forKey: r)
+                }
+                continue
+            }
+
+            // Invalidate destination register Rd on common overwriting instructions (MOVZ/MOVN/MOVK, ORR/MOV reg,
+            // 32-bit/byte/halfword LDR, SUB/ADD reg, ADR) so stale ADRP page addresses are never reused.
+            let isMoveWide = ((insn & 0x1F80_0000) == 0x1280_0000)
+            let isLogicalShifted = ((insn & 0x1F00_0000) == 0x0A00_0000)
+            let isAddSubReg = ((insn & 0x1F20_0000) == 0x0B00_0000)
+            let isOtherLoad = ((insn & 0x3B40_0000) == 0x3940_0000)
+            let isAdr = ((insn & 0x9F00_0000) == 0x1000_0000)
+            if isMoveWide || isLogicalShifted || isAddSubReg || isOtherLoad || isAdr {
+                let rd = Int(insn & 0x1F)
+                if rd != 31 {
+                    pageRegs.removeValue(forKey: rd)
                 }
             }
         }

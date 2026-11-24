@@ -65,12 +65,24 @@ public enum MachOParser {
         binaryPath: String,
         includeSHA256: Bool = false
     ) throws -> [MachOSliceInfo] {
+        try parseSlices(data: data, binaryPath: binaryPath, includeSHA256: includeSHA256, allowFat: true)
+    }
+
+    private static func parseSlices(
+        data: Data,
+        binaryPath: String,
+        includeSHA256: Bool,
+        allowFat: Bool
+    ) throws -> [MachOSliceInfo] {
         guard data.count >= 8 else {
             throw PatchError.invalidMachO(binaryPath: binaryPath, reason: "Mach-O 文件被截断（不足 8 字节）")
         }
 
         let magicBE = readUInt32BE(data, at: 0)
         if magicBE == fatMagic32 || magicBE == fatMagic64 {
+            guard allowFat else {
+                throw PatchError.invalidMachO(binaryPath: binaryPath, reason: "不支持嵌套的 Fat Mach-O 切片")
+            }
             let isFat64 = (magicBE == fatMagic64)
             let archCount = Int(readUInt32BE(data, at: 4))
             guard archCount > 0 && archCount < 32 else {
@@ -100,7 +112,7 @@ public enum MachOParser {
                 let start = data.startIndex + Int(sliceOffset)
                 let end = start + Int(sliceSize)
                 let sliceData = data[start..<end]
-                results.append(contentsOf: try parseSlices(data: sliceData, binaryPath: binaryPath, includeSHA256: includeSHA256))
+                results.append(contentsOf: try parseSlices(data: sliceData, binaryPath: binaryPath, includeSHA256: includeSHA256, allowFat: false))
             }
             return results
         }
@@ -234,6 +246,194 @@ public enum MachOParser {
         }
 
         return cursor == cmdsEnd ? found : nil
+    }
+
+    /// Validates that a `RuntimeOffsetProfile`'s 14 RVAs satisfy ARM64 alignment and, whenever the target
+    /// Mach-O declares `LC_SEGMENT_64` segments, fall within the corresponding executable/data RVA ranges.
+    public static func validateRuntimeOffsets(
+        _ offsets: IL2CPPOffsetSet,
+        againstMachOData data: Data
+    ) -> [CompatibilityMismatch] {
+        var mismatches: [CompatibilityMismatch] = []
+
+        let codeTargets: [(key: String, rva: UInt64, optionalZero: Bool)] = [
+            ("getNetworkConfigFn", offsets.getNetworkConfigFn, false),
+            ("overrideNetworkOptionsFn", offsets.overrideNetworkOptionsFn, false),
+            ("createStringFn", offsets.createStringFn, false),
+            ("internalSDKMetaFn", offsets.internalSDKMetaFn, false),
+            ("sdkMetaCtorFn", offsets.sdkMetaCtorFn, false),
+            ("clearAuthStatusFn", offsets.clearAuthStatusFn, false),
+            ("clearLoginStatusFn", offsets.clearLoginStatusFn, false),
+            ("getCurrentSceneFn", offsets.getCurrentSceneFn, false),
+            ("networkerExpectedClass", offsets.networkerExpectedClass, true),
+        ]
+        let dataSlotTargets: [(key: String, rva: UInt64)] = [
+            ("sdkInterfaceClassSlot", offsets.sdkInterfaceClassSlot),
+            ("sdkExternalToolsClassSlot", offsets.sdkExternalToolsClassSlot),
+            ("sdkMetaClassSlot", offsets.sdkMetaClassSlot),
+            ("networkerTypeSlot", offsets.networkerTypeSlot),
+            ("gameFlowClassSlot", offsets.gameFlowClassSlot),
+        ]
+
+        // 1. ARM64 instruction (4-byte) and pointer slot (8-byte) alignment checks.
+        for item in codeTargets {
+            if item.optionalZero && item.rva == 0 { continue }
+            if item.rva == 0 || (item.rva & 3) != 0 {
+                mismatches.append(
+                    CompatibilityMismatch(
+                        kind: .binaryTextDigest,
+                        fieldLabel: "函数偏移对齐 · \(item.key)",
+                        expected: "非零且 4 字节对齐的 ARM64 代码偏移",
+                        actual: IL2CPPOffsetSet.hexString(item.rva),
+                        detail: "手工配置中的函数地址 \(item.key) 未按 ARM64 指令 4 字节对齐，运行时直接调用会导致闪退。"
+                    )
+                )
+            }
+        }
+        for item in dataSlotTargets {
+            if item.rva == 0 || (item.rva & 7) != 0 {
+                mismatches.append(
+                    CompatibilityMismatch(
+                        kind: .binaryTextDigest,
+                        fieldLabel: "数据槽位对齐 · \(item.key)",
+                        expected: "非零且 8 字节对齐的指针槽位偏移",
+                        actual: IL2CPPOffsetSet.hexString(item.rva),
+                        detail: "手工配置中的数据槽位 \(item.key) 未按 64 位指针 8 字节对齐，无法指向合法全局槽位。"
+                    )
+                )
+            }
+        }
+
+        // 2. Segment RVA bounds check when the Mach-O declares `LC_SEGMENT_64` commands.
+        guard data.count >= 32, readUInt32LE(data, at: 0) == mhMagic64LE else { return mismatches }
+        let ncmds = Int(readUInt32LE(data, at: 16))
+        let sizeofcmds = Int(readUInt32LE(data, at: 20))
+        let cmdsEnd = 32 + sizeofcmds
+        guard cmdsEnd <= data.count else { return mismatches }
+
+        struct RawSegment {
+            let name: String
+            let vmaddr: UInt64
+            let vmsize: UInt64
+            let initprot: UInt32
+            let textSectionRange: (start: UInt64, end: UInt64)?
+        }
+
+        let lcSegment64: UInt32 = 0x19
+        let vmProtRead: UInt32 = 0x1
+        let vmProtExec: UInt32 = 0x4
+        var cursor = 32
+        var segments: [RawSegment] = []
+        var textBaseVMAddr: UInt64?
+
+        for _ in 0..<ncmds {
+            guard cursor + 8 <= cmdsEnd else { break }
+            let cmd = readUInt32LE(data, at: cursor)
+            let cmdsize = Int(readUInt32LE(data, at: cursor + 4))
+            guard cmdsize >= 8 && cursor + cmdsize <= cmdsEnd else { break }
+            if cmd == lcSegment64 && cmdsize >= 72 {
+                let segName = readFixedCString(data, at: cursor + 8, maxLength: 16)
+                let vmaddr = readUInt64LE(data, at: cursor + 24)
+                let vmsize = readUInt64LE(data, at: cursor + 32)
+                let initprot = readUInt32LE(data, at: cursor + 60)
+                let nsects = Int(readUInt32LE(data, at: cursor + 64))
+                var textSecRange: (UInt64, UInt64)?
+                if segName == "__TEXT" {
+                    textBaseVMAddr = vmaddr
+                    var secPos = cursor + 72
+                    for _ in 0..<nsects where secPos + 80 <= cursor + cmdsize {
+                        let sName = readFixedCString(data, at: secPos, maxLength: 16)
+                        if sName == "__text" {
+                            let sAddr = readUInt64LE(data, at: secPos + 32)
+                            let sSize = readUInt64LE(data, at: secPos + 40)
+                            if sAddr >= vmaddr && sSize > 0 {
+                                textSecRange = (sAddr - vmaddr, (sAddr - vmaddr) &+ sSize)
+                            }
+                        }
+                        secPos += 80
+                    }
+                }
+                if vmsize > 0 && segName != "__PAGEZERO" {
+                    segments.append(
+                        RawSegment(
+                            name: segName,
+                            vmaddr: vmaddr,
+                            vmsize: vmsize,
+                            initprot: initprot,
+                            textSectionRange: textSecRange
+                        )
+                    )
+                }
+            }
+            cursor += cmdsize
+        }
+
+        guard let baseVM = textBaseVMAddr, !segments.isEmpty else {
+            return mismatches
+        }
+
+        var codeRanges: [(start: UInt64, end: UInt64)] = []
+        var dataRanges: [(start: UInt64, end: UInt64)] = []
+        for seg in segments where seg.vmaddr >= baseVM {
+            let rvaStart = seg.vmaddr - baseVM
+            let rvaEnd = rvaStart &+ seg.vmsize
+            if let textSec = seg.textSectionRange {
+                codeRanges.append(textSec)
+            } else if (seg.initprot & vmProtExec) != 0 || seg.name == "__TEXT" {
+                codeRanges.append((rvaStart, rvaEnd))
+            } else if seg.name != "__LINKEDIT" && seg.name != "__TEXT" && (
+                (seg.initprot & vmProtRead) != 0 ||
+                seg.name.hasPrefix("__DATA") ||
+                seg.name.hasPrefix("__AUTH")
+            ) {
+                dataRanges.append((rvaStart, rvaEnd))
+            }
+        }
+
+        if !codeRanges.isEmpty {
+            let codeSummary = codeRanges
+                .map { "\(IL2CPPOffsetSet.hexString($0.start))..<\(IL2CPPOffsetSet.hexString($0.end))" }
+                .joined(separator: ", ")
+            for item in codeTargets {
+                if item.optionalZero && item.rva == 0 { continue }
+                if (item.rva & 3) != 0 { continue } // already reported alignment error
+                let inCode = codeRanges.contains { item.rva >= $0.start && item.rva &+ 4 <= $0.end }
+                if !inCode {
+                    mismatches.append(
+                        CompatibilityMismatch(
+                            kind: .binaryTextDigest,
+                            fieldLabel: "函数偏移越界 · \(item.key)",
+                            expected: "位于可执行代码段（\(codeSummary)）",
+                            actual: IL2CPPOffsetSet.hexString(item.rva),
+                            detail: "配置文件中的函数偏移 \(item.key) 未落入 UnityFramework 可执行代码段，继续导出会导致游戏运行时闪退。"
+                        )
+                    )
+                }
+            }
+        }
+
+        if !dataRanges.isEmpty {
+            let dataSummary = dataRanges
+                .map { "\(IL2CPPOffsetSet.hexString($0.start))..<\(IL2CPPOffsetSet.hexString($0.end))" }
+                .joined(separator: ", ")
+            for item in dataSlotTargets {
+                if (item.rva & 7) != 0 { continue } // already reported alignment error
+                let inData = dataRanges.contains { item.rva >= $0.start && item.rva &+ 8 <= $0.end }
+                if !inData {
+                    mismatches.append(
+                        CompatibilityMismatch(
+                            kind: .binaryTextDigest,
+                            fieldLabel: "数据槽位越界 · \(item.key)",
+                            expected: "位于已映射数据段（\(dataSummary)）",
+                            actual: IL2CPPOffsetSet.hexString(item.rva),
+                            detail: "配置文件中的全局槽位偏移 \(item.key) 未落入 UnityFramework 数据段，继续导出会导致运行时读到无效地址。"
+                        )
+                    )
+                }
+            }
+        }
+
+        return mismatches
     }
 
     private static func readFixedCString(_ data: Data, at offset: Int, maxLength: Int) -> String {

@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-and-build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Bridge C/ObjC unit tests
+        run: ./Bridge/tests/run_tests.sh
+
+      - name: Run SwiftPM core tests (Zip64Kit + IPAPatcherCore)
+        run: swift test --package-path Packages/IPAPatcherCore
+
+      - name: Build CLI executable
+        run: swift build --package-path Packages/IPAPatcherCore --product ipa-patcher-cli
+
+      - name: Build unsigned iOS App
+        run: |
+          xcodebuild \
+            -project ArknightsPatcher.xcodeproj \
+            -scheme ArknightsPatcher \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
